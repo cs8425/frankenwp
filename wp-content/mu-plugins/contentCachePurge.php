@@ -9,11 +9,12 @@
 
 
  add_action("save_post", function ($id) {
-    $post = get_post($id);
-    $url = get_site_url() . $_SERVER["PURGE_PATH"] . "/" . $post->post_name . "/";
+    $link = get_permalink($id);
+    $url = get_site_url() . $_SERVER["PURGE_PATH"] . wp_make_link_relative($link) . "/";
     wp_remote_post($url, [
         "headers" => [
             "X-WPSidekick-Purge-Key" => $_SERVER["PURGE_KEY"],
-        ]
+        ],
+        "sslverify" => false,
     ]);
  });
