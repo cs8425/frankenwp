@@ -1,30 +1,32 @@
 package cache
 
 import (
+	"encoding/json"
 	"os"
-	"strings"
 	"regexp"
 	"strconv"
-	"encoding/json"
+	"strings"
+
+	"net/http"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"go.uber.org/zap"
-	"net/http"
 )
 
 type Cache struct {
-	logger   *zap.Logger
-	Loc     string
-	PurgePath string
-	PurgeKey string
+	logger             *zap.Logger
+	Loc                string
+	PurgePath          string
+	PurgeKey           string
+	CacheHeaderName    string
 	BypassPathPrefixes []string
-	BypassHome bool
+	BypassHome         bool
 	CacheResponseCodes []string
-	TTL int
-	Store *Store
+	TTL                int
+	Store              *Store
 }
 
 func init() {
@@ -89,6 +91,9 @@ func (c *Cache) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 		case "purge_key":
 			c.PurgeKey = value
+
+		case "cache_header_name":
+			c.CacheHeaderName = value
 		}
 	}
 
@@ -145,6 +150,13 @@ func (c *Cache) Provision(ctx caddy.Context) error {
 		c.PurgeKey = os.Getenv("PURGE_KEY")
 	}
 
+	if c.CacheHeaderName == "" {
+		c.CacheHeaderName = os.Getenv("CACHE_HEADER_NAME")
+		if c.CacheHeaderName == "" {
+			c.CacheHeaderName = "X-WPEverywhere-Cache"
+		}
+	}
+
 	c.Store = NewStore(c.Loc, c.TTL, c.logger)
 
 	return nil
@@ -186,14 +198,12 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request,
 		bypass = true
 	}
 
-	
-
-	if bypass  {
+	if bypass {
 		return next.ServeHTTP(w, r)
 	}
 
 	db := c.Store
-	nw := NewCustomWriter(w, r, db, c.logger, r.URL.Path, c.CacheResponseCodes)
+	nw := NewCustomWriter(w, r, db, c.logger, r.URL.Path, c.CacheResponseCodes, c.CacheHeaderName)
 
 	if strings.Contains(r.URL.Path, c.PurgePath) && r.Method == "GET" {
 		key := r.Header.Get("X-WPSidekick-Purge-Key")
@@ -229,7 +239,7 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request,
 
 		return nil
 	}
-	
+
 	// bypass if is logged in. We don't want to cache admin bars
 	cookies := r.Header.Get("Cookie")
 	if strings.Contains(cookies, "wordpress_logged_in") {
@@ -256,11 +266,11 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request,
 	cacheItem, err := db.Get(cacheKey)
 
 	if err != nil {
-		c.logger.Debug("wp cache - error - " + cacheKey, zap.Error(err))
+		c.logger.Debug("wp cache - error - "+cacheKey, zap.Error(err))
 	}
 
-	if err == nil {		
-		w.Header().Set("X-WPEverywhere-Cache", "HIT")
+	if err == nil {
+		w.Header().Set(c.CacheHeaderName, "HIT")
 		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
 		w.Header().Set("Server", "Caddy")
 		w.Header().Set("Vary", "Accept-Encoding")
@@ -269,7 +279,6 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request,
 
 		return nil
 	}
-
 
 	return next.ServeHTTP(nw, r)
 }

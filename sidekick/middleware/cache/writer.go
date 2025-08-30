@@ -2,13 +2,14 @@ package cache
 
 import (
 	"net/http"
-	"go.uber.org/zap"
 	"strconv"
+
+	"go.uber.org/zap"
 )
 
-func NewCustomWriter(rw http.ResponseWriter, r *http.Request, db *Store, logger *zap.Logger, path string, codes []string) *CustomWriter {	
-	nw := CustomWriter{rw, r, db, logger, path, 0, codes, 200}
-	
+func NewCustomWriter(rw http.ResponseWriter, r *http.Request, db *Store, logger *zap.Logger, path string, codes []string, cacheHeaderName string) *CustomWriter {
+	nw := CustomWriter{rw, r, db, logger, path, 0, codes, 200, cacheHeaderName}
+
 	return &nw
 }
 
@@ -18,10 +19,11 @@ type CustomWriter struct {
 	*http.Request
 	*Store
 	*zap.Logger
-	path string
-	idx int
+	path               string
+	idx                int
 	cacheResponseCodes []string
-	status int
+	status             int
+	cacheHeaderName    string
 }
 
 func (r *CustomWriter) Header() http.Header {
@@ -39,7 +41,7 @@ func (r *CustomWriter) Write(b []byte) (int, error) {
 	r.Logger.Debug("Writing customwriter response", zap.String("path", r.path))
 	// content encoding
 	ct := r.Header().Get("Content-Encoding")
-	r.Header().Set("X-WPEverywhere-Cache", "MISS")
+	r.Header().Set(r.cacheHeaderName, "MISS")
 	bypass := true
 
 	// check if the response code is in the cache response codes
