@@ -43,6 +43,7 @@
 		purge_key {$PURGE_KEY}
 		bypass_home {$BYPASS_HOME:false}
 		bypass_path_prefixes {$BYPASS_PATH_PREFIXES:/wp-admin,/wp-json}
+		cache_header_name {$CACHE_HEADER_NAME:X-Custom-Cache}
 	}
 
 	{$CADDY_SERVER_EXTRA_DIRECTIVES}
