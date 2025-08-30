@@ -1,0 +1,60 @@
+services:
+  wordpress:
+    image: frankenwp:php8.4
+    restart: unless-stopped
+    ports:
+      - "8100:80" # HTTP
+      - "443:443" # HTTPS
+      - "443:443/udp" # HTTP/3
+    user: "33:33"
+    environment:
+      SERVER_NAME: ${SERVER_NAME:-127.0.0.1.nip.io}
+      WORDPRESS_DB_HOST: ${DB_HOST:-db}
+      WORDPRESS_DB_USER: ${DB_USER:-exampleuser}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD:-examplepass}
+      WORDPRESS_DB_NAME: ${DB_NAME:-exampledb}
+      WORDPRESS_DEBUG: ${WP_DEBUG:-0}
+      WORDPRESS_TABLE_PREFIX: ${DB_TABLE_PREFIX:-wp_}
+      CACHE_LOC: ${CACHE_LOC:-/var/www/html/wp-content/cache}
+      TTL: ${TTL:-80000}
+      PURGE_PATH: ${PURGE_PATH:-/__cache/purge}
+      PURGE_KEY: ${PURGE_KEY:-}
+      BYPASS_HOME: ${BYPASS_HOME:-false}
+      BYPASS_PATH_PREFIXES: ${BYPASS_PATH_PREFIXES:-/wp-admin,/wp-content,/wp-includes,/wp-json,/feed}
+      CACHE_RESPONSE_CODES: ${CACHE_RESPONSE_CODES:-200,404,403}
+      CADDY_GLOBAL_OPTIONS: |
+        email myemail@sample.com
+        auto_https disable_redirects
+        debug
+      WORDPRESS_CONFIG_EXTRA: |
+          define('WP_SITEURL', 'https://127.0.0.1.nip.io');
+          define('WP_HOME', 'https://127.0.0.1.nip.io');
+          
+    volumes:
+      - ./wp:/var/www/html
+      - ./caddy_data:/data
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./php.ini:/usr/local/etc/php/conf.d/wp.ini:ro
+    depends_on:
+      - db
+    tty: true
+
+  db:
+    image: mariadb:lts
+    restart: unless-stopped
+    ports:
+      - ${LOCAL_DB_PORT:-3306}:3306
+    environment:
+      MARIADB_DATABASE: ${DB_NAME:-exampledb}
+      MARIADB_USER: ${DB_USER:-exampleuser}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-examplepass}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-examplepass}
+    volumes:
+      - ./db:/var/lib/mysql
+
+  adminer:
+    image: adminer:standalone
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LOCAL_ADMINER_PORT:-8181}:8080"
+
