@@ -34,6 +34,7 @@ LABEL org.opencontainers.image.source=https://github.com/StephenMiracle/frankenw
 LABEL org.opencontainers.image.licenses=MIT
 LABEL org.opencontainers.image.vendor="Stephen Miracle"
 
+ARG USER
 
 # Replace the official binary by the one contained your custom modules
 COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
@@ -125,7 +126,7 @@ RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli
 COPY Caddyfile /etc/caddy/Caddyfile
 
 # Caddy requires an additional capability to bind to port 80 and 443
-RUN useradd -D ${USER} && \
+RUN useradd -D ${USER} || true && \
     setcap CAP_NET_BIND_SERVICE=+eip /usr/local/bin/frankenphp
 
 # Caddy requires write access to /data/caddy and /config/caddy
