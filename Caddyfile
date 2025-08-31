@@ -15,7 +15,8 @@
 	order php_server before file_server
 	order php before file_server
 	order wp_cache before rewrite
-	order metrics before wp_cache
+	order respond before wp_cache
+	order metrics before respond
 	order request_header before metrics
 }
 
@@ -41,6 +42,11 @@
 		path /xmlrpc.php
 		path *.sql
 		path /wp-content/uploads/*.php /wp-content/uploads/*.phtml
+		path */.*
+		path */.git/*
+	}
+	respond @disallowed "404 Not Found" 404 {
+		close
 	}
 
 	root * /var/www/html
