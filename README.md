@@ -10,7 +10,8 @@ An enterprise-grade WordPress image built for scale. It uses the new FrankenPHP 
 
 ### Examples
 
-- [Standard environment with MariaDB & Docker Compose](./examples/basic/compose.yaml)
+- [Standard environment with MariaDB + adminer & Docker Compose](./examples/basic-adminer/compose.yaml)
+- [Standard environment with MariaDB + phpmyadmin & Docker Compose](./examples/basic/compose.yaml)
 - [Debug with XDebug & Docker Compose](./examples/debug/compose.yaml)
 - [SQLite with Docker Compose](./examples/sqlite/compose.yaml)
 
@@ -26,6 +27,9 @@ An enterprise-grade WordPress image built for scale. It uses the new FrankenPHP 
 
 - opcache
 - Internal server sidekick
+- APCu Extension
+- Memcached Extension
+- Redis Extension
 
 ### Environment Variables
 
@@ -44,6 +48,7 @@ An enterprise-grade WordPress image built for scale. It uses the new FrankenPHP 
 - `PURGE_KEY`: Create a purge key that must be validated on purge requests. Helps to prevent malicious intent. No default.
 - `PURGE_PATH`: Create a custom route for the cache purge API path. Defaults to /\_\_cache/purge.
 - `TTL`: Defines how long objects should be stored in cache. Defaults to 6000.
+- `CACHE_HEADER_NAME`: Change hader name for the cache state check. Defaults to X-WPEverywhere-Cache.
 
 #### Wordpress
 

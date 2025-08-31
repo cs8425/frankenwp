@@ -84,8 +84,11 @@ RUN install-php-extensions \
     pgsql \
     bz2 \
     apcu \
+    shmop \
+    sysvshm \
     brotli \
     zstd \
+    simdjson \
     igbinary \
     msgpack \
     redis \
