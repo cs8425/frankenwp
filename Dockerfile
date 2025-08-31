@@ -53,6 +53,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libzip-dev \
     unzip \
     git \
+    less \
+    libmimalloc3 \
     libjpeg-dev \
     libwebp-dev \
     libzip-dev \
@@ -124,7 +126,11 @@ RUN sed -i 's/<?php/<?php if (!!getenv("FORCE_HTTPS")) { \$_SERVER["HTTPS"] = "o
 # Adding WordPress CLI
 RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
     chmod +x wp-cli.phar && \
-    mv wp-cli.phar /usr/local/bin/wp
+    mv wp-cli.phar /usr/local/bin/wp-cli
+
+# fix wp cli
+RUN echo '#!/bin/bash\nfrankenphp php-cli /usr/local/bin/wp-cli "$@"' > /usr/bin/wp && \
+    chmod +x /usr/bin/wp
 
 COPY Caddyfile /etc/caddy/Caddyfile
 
@@ -140,6 +146,9 @@ RUN chown -R ${USER}:${USER} /data/caddy && \
     chown -R ${USER}:${USER} /usr/local/bin/docker-entrypoint.sh
 
 USER $USER
+
+# use mimalloc by LD_PRELOAD
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.3
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]
