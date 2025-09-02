@@ -1,0 +1,5 @@
+# for wp cron every 5 minutes
+3 */2 * * * * * wp cron event run --due-now --allow-root --path=/var/www/html
+
+# 3:00 am check WordPress Core & update
+0 0 3 * * * * wp core update --allow-root --path=/var/www/html
