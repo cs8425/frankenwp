@@ -1,0 +1,60 @@
+services:
+  db:
+    image: mariadb:lts
+    restart: unless-stopped
+    # user: "${UID}:${UID}"
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wpuser
+      MARIADB_PASSWORD: wppass
+      MARIADB_ROOT_PASSWORD: toor
+    volumes:
+      - ./db:/var/lib/mysql
+      - ./sockets:/var/run/mysqld
+
+  wordpress:
+    image: frankenwp:php8.4
+    restart: unless-stopped
+    ports:
+      - "80:80" # HTTP
+    #network_mode: host
+    # user: "${UID}:${UID}"
+    user: "33:33"
+    environment:
+      SERVER_NAME: :80
+      WORDPRESS_DB_HOST: localhost:/var/run/mysqld/mysqld.sock
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wpuser
+      WORDPRESS_DB_PASSWORD: wppass
+      WORDPRESS_DEBUG: ${WP_DEBUG:-0}
+      WORDPRESS_TABLE_PREFIX: ${DB_TABLE_PREFIX:-wp_}
+      CACHE_LOC: ${CACHE_LOC:-/var/www/html/wp-content/cache}
+      TTL: ${TTL:-80000}
+      PURGE_PATH: ${PURGE_PATH:-/__cache/purge}
+      PURGE_KEY: ${PURGE_KEY:-}
+      BYPASS_HOME: ${BYPASS_HOME:-false}
+      BYPASS_PATH_PREFIXES: ${BYPASS_PATH_PREFIXES:-/wp-admin,/wp-content,/wp-includes,/wp-json}
+      CACHE_RESPONSE_CODES: ${CACHE_RESPONSE_CODES:-200,404,403}
+      CADDY_GLOBAL_OPTIONS: |
+        email myemail@sample.com
+        auto_https disable_redirects
+        debug
+      WORDPRESS_CONFIG_EXTRA: |
+          define('WP_SITEURL', 'http://127.0.0.1');
+          define('WP_HOME', 'http://127.0.0.1');
+          define('DISABLE_WP_CRON', true);
+          
+    volumes:
+      - ./caddy_data:/data/caddy/
+      - ./wp:/var/www/html
+      - ./sockets:/var/run/mysqld
+      - ./init.sh:/init.sh
+      - ./Caddyfile.frankenwp:/etc/caddy/Caddyfile
+    entrypoint: ["/init.sh"]
+    command: ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]
+    depends_on:
+      - db
+    tty: true
+
+
+

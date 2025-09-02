@@ -1,0 +1,61 @@
+FROM php:8.4-fpm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        unzip \
+        git \
+        less \
+        mariadb-client \
+        libmagickwand-dev \
+        libzip-dev \
+        libicu-dev \
+        libpq-dev \
+        libbz2-dev \
+        libmemcached-dev \
+        zlib1g-dev \
+        libzstd-dev \
+        libbrotli-dev \
+        libsimdjson-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -sSLf -o /usr/local/bin/install-php-extensions \
+    https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions \
+    && chmod +x /usr/local/bin/install-php-extensions
+
+RUN install-php-extensions \
+    bcmath \
+    exif \
+    gd \
+    intl \
+    mysqli \
+    zip \
+    imagick \
+    opcache \
+    pdo_pgsql \
+    pdo_mysql \
+    pdo_odbc \
+    pgsql \
+    bz2 \
+    apcu \
+    shmop \
+    sysvshm \
+    brotli \
+    zstd \
+    simdjson \
+    igbinary \
+    msgpack \
+    redis \
+    memcached
+
+# install wp-cli
+RUN curl -o /usr/local/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar \
+    && chmod +x /usr/local/bin/wp
+
+#RUN apt-get update && apt-get install -y libmimalloc3 && rm -rf /var/lib/apt/lists/*
+#ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.3
+
+
+RUN sed -i 's|listen = .*|listen = /var/run/php/php-fpm.sock|' /usr/local/etc/php-fpm.d/zz-docker.conf && \
+    echo "listen.owner = www-data" >> /usr/local/etc/php-fpm.d/zz-docker.conf && \
+    echo "listen.group = www-data" >> /usr/local/etc/php-fpm.d/zz-docker.conf && \
+    echo "listen.mode = 0666" >> /usr/local/etc/php-fpm.d/zz-docker.conf
