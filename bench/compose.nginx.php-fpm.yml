@@ -1,0 +1,44 @@
+services:
+  db:
+    image: mariadb:lts
+    restart: unless-stopped
+    # user: "${UID}:${UID}"
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wpuser
+      MARIADB_PASSWORD: wppass
+      MARIADB_ROOT_PASSWORD: toor
+    volumes:
+      - ./db:/var/lib/mysql
+      - ./sockets:/var/run/mysqld
+
+  php:
+    #image: php:8.4-fpm
+    #user: "${UID}:${UID}"
+    build:
+      context: .
+      dockerfile: Dockerfile.php-fpm
+    volumes:
+      - ./init.sh:/init.sh:ro
+      - ../php.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - ./wp:/var/www/html
+      - ./sockets:/var/run/mysqld
+      - ./php-sockets:/var/run/php
+    entrypoint: ["/init.sh"]
+    command: ["php-fpm", "-F"]
+    depends_on:
+      - db
+
+  nginx:
+    image: nginx:mainline
+    #user: "${UID}:${UID}"
+    ports:
+      - "80:80" # HTTP
+    #network_mode: "host"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./wp:/var/www/html
+      - ./php-sockets:/var/run/php
+    depends_on:
+      - php
+
