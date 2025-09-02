@@ -9,7 +9,7 @@ services:
     user: "33:33"
     environment:
       SERVER_NAME: ${SERVER_NAME:-127.0.0.1.nip.io}
-      WORDPRESS_DB_HOST: ${DB_HOST:-db}
+      WORDPRESS_DB_HOST: ${DB_HOST:-localhost:/var/run/mysqld/mysqld.sock}
       WORDPRESS_DB_USER: ${DB_USER:-exampleuser}
       WORDPRESS_DB_PASSWORD: ${DB_PASSWORD:-examplepass}
       WORDPRESS_DB_NAME: ${DB_NAME:-exampledb}
@@ -29,9 +29,11 @@ services:
       WORDPRESS_CONFIG_EXTRA: |
           define('WP_SITEURL', 'https://127.0.0.1.nip.io');
           define('WP_HOME', 'https://127.0.0.1.nip.io');
+          define('DISABLE_WP_CRON', true);
           
     volumes:
       - ./wp:/var/www/html
+      - ./sockets:/var/run/mysqld
       - ./caddy_data:/data
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./php.ini:/usr/local/etc/php/conf.d/wp.ini:ro
@@ -39,11 +41,34 @@ services:
       - db
     tty: true
 
+  wordpress-cron:
+    build:
+      context: .
+      dockerfile: Dockerfile.cron
+    restart: unless-stopped
+    user: "33:33"
+    environment:
+      TZ: Asia/Taipei
+      WORDPRESS_DB_HOST: ${DB_HOST:-localhost:/var/run/mysqld/mysqld.sock}
+      WORDPRESS_DB_USER: ${DB_USER:-exampleuser}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD:-examplepass}
+      WORDPRESS_DB_NAME: ${DB_NAME:-exampledb}
+      WORDPRESS_DEBUG: ${WP_DEBUG:-0}
+      WORDPRESS_TABLE_PREFIX: ${DB_TABLE_PREFIX:-wp_}
+    volumes:
+      - ./wp:/var/www/html
+      - ./sockets:/var/run/mysqld
+      - ./php.ini:/usr/local/etc/php/conf.d/wp.ini:ro
+      - ./wpcron.cron:/etc/crontab:ro
+    #command: ["-inotify", "-debug", "/etc/crontab"]
+    depends_on:
+      - db
+
   db:
     image: mariadb:lts
     restart: unless-stopped
     ports:
-      - ${LOCAL_DB_PORT:-3306}:3306
+      - ${LOCAL_DB_PORT:-127.0.0.1:3306}:3306
     environment:
       MARIADB_DATABASE: ${DB_NAME:-exampledb}
       MARIADB_USER: ${DB_USER:-exampleuser}
@@ -51,10 +76,14 @@ services:
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-examplepass}
     volumes:
       - ./db:/var/lib/mysql
+      - ./sockets:/var/run/mysqld
 
   adminer:
     image: adminer:standalone
     restart: unless-stopped
     ports:
       - "127.0.0.1:${LOCAL_ADMINER_PORT:-8181}:8080"
-
+    environment:
+      - ADMINER_DEFAULT_SERVER=${DB_HOST:-localhost:/var/run/mysqld/mysqld.sock}
+    volumes:
+      - ./sockets:/var/run/mysqld
