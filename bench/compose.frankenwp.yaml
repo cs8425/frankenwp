@@ -38,7 +38,6 @@ services:
       CADDY_GLOBAL_OPTIONS: |
         email myemail@sample.com
         auto_https disable_redirects
-        debug
       WORDPRESS_CONFIG_EXTRA: |
           define('WP_SITEURL', 'http://127.0.0.1');
           define('WP_HOME', 'http://127.0.0.1');

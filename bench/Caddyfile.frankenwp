@@ -4,6 +4,7 @@
 	metrics {
 		per_host
 	}
+	persist_config off
 	{$CADDY_GLOBAL_OPTIONS}
 
 	frankenphp {
