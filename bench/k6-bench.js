@@ -33,6 +33,7 @@ const pages = [
 	'/1787/block-gallery/',
 	'/1782/blocks-widgets/',
 ];
+const pagesSz = pages.length;
 
 // k6 options
 export let options = {
@@ -51,13 +52,16 @@ export let options = {
 	],
 };
 
+let i = 0;
 export default function () {
 	// force skip sidekick cache
 	const cookieJar = http.cookieJar();
 	cookieJar.set(WP_URL, 'wordpress_logged_in', '');
 
 	// Randomly pick a page to request
-	let page = pages[Math.floor(Math.random() * pages.length)];
+	// const idx = Math.floor(Math.random() * pages.length);
+	const idx = i++ % pagesSz;
+	let page = pages[idx];
 	const res = http.get(`${WP_URL}${page}`);
 
 	check(res, {
