@@ -1,0 +1,8 @@
+FROM wordpress:php8.4-apache
+
+# install wp-cli
+RUN curl -o /usr/local/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar \
+    && chmod +x /usr/local/bin/wp
+
+#RUN apt-get update && apt-get install -y libmimalloc3 && rm -rf /var/lib/apt/lists/*
+#ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.3
