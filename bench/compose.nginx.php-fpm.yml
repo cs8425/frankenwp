@@ -21,6 +21,7 @@ services:
     volumes:
       - ./init.sh:/init.sh:ro
       - ../php.ini:/usr/local/etc/php/conf.d/99-custom.ini
+      - ./php-fpm.conf:/usr/local/etc/php-fpm.d/zz-docker.conf
       - ./wp:/var/www/html
       - ./sockets:/var/run/mysqld
       - ./php-sockets:/var/run/php
