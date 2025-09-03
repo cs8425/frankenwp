@@ -9,6 +9,9 @@
 
 	frankenphp {
 		#worker /path/to/your/worker.php
+		#num_threads 24
+		max_threads 32
+		max_wait_time 300s
 		{$FRANKENPHP_CONFIG}
 	}
 
