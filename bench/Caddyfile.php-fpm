@@ -1,0 +1,60 @@
+{
+	local_certs
+	auto_https disable_redirects # This is required to avoid redirect loops when using a reverse proxy and cloud load balancers.
+	metrics {
+		per_host
+	}
+	persist_config off
+	{$CADDY_GLOBAL_OPTIONS}
+
+	# https://caddyserver.com/docs/caddyfile/directives#sorting-algorithm
+	order php_fastcgi before file_server
+	order respond before rewrite
+	order metrics before respond
+	order request_header before metrics
+}
+
+{$CADDY_EXTRA_CONFIG}
+
+## Need to set all hosts with port for the cloud.
+# You may not have the hostname being called due to dynamic IPs and load balancers.
+# Allowing all hosts on port 80 for health checks, local dev & cases where the hostname is unknown.
+:80 {
+	# export metrics
+	# basic_auth /metrics {
+	# 	# Username "bob", password "hiccup"
+	# 	bob $2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG
+	# }
+	metrics /metrics
+
+	@static {
+		file
+		path *.ico *.css *.js *.gif *.jpg *.jpeg *.png *.svg *.woff *.webp
+	}
+
+	@disallowed {
+		path /xmlrpc.php
+		path *.sql
+		path /wp-content/uploads/*.php /wp-content/uploads/*.phtml
+		path */.*
+		path */.git/*
+	}
+	respond @disallowed "404 Not Found" 404 {
+		close
+	}
+
+	root * /var/www/html
+	encode zstd gzip
+
+	{$CADDY_SERVER_EXTRA_DIRECTIVES}
+
+	php_fastcgi unix//var/run/php/php-fpm.sock {
+		root /var/www/html
+		resolve_root_symlink false
+	}
+	file_server
+
+	route {
+		try_files {path} {path}/ /index.php?{query}
+	}
+}
