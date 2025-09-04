@@ -1,25 +1,25 @@
 package cache
 
-
 import (
-	"os"
-	"go.uber.org/zap"
-	"strings"
 	"errors"
-	"time"
+	"os"
 	"strconv"
+	"strings"
+	"time"
+
+	"go.uber.org/zap"
 )
 
 type Store struct {
-	loc string
-	ttl int
-	logger *zap.Logger
+	loc      string
+	ttl      int
+	logger   *zap.Logger
 	memCache map[string]*MemCacheItem
 }
 
 type MemCacheItem struct {
-	content map[int]*string
-	value string
+	content   map[int]*string
+	value     string
 	timestamp int64
 }
 
@@ -27,30 +27,29 @@ const (
 	CACHE_DIR = "sidekick-cache"
 )
 
-
 func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
 	os.MkdirAll(loc+"/"+CACHE_DIR, os.ModePerm)
 	memCache := make(map[string]*MemCacheItem)
 
 	// // Load cache from disk
-	files, err := os.ReadDir(loc+"/"+CACHE_DIR)
+	files, err := os.ReadDir(loc + "/" + CACHE_DIR)
 	if err == nil {
 		for _, file := range files {
 			if file.IsDir() {
-				pageFiles, err := os.ReadDir(loc+"/"+CACHE_DIR+"/"+file.Name())
+				pageFiles, err := os.ReadDir(loc + "/" + CACHE_DIR + "/" + file.Name())
 				if err != nil {
 					continue
 				}
 
 				memCache[file.Name()] = &MemCacheItem{
-					content: make(map[int]*string),
-					value: "",
+					content:   make(map[int]*string),
+					value:     "",
 					timestamp: time.Now().Unix(),
 				}
 
 				for idx, pageFile := range pageFiles {
 					if !pageFile.IsDir() {
-						value, err := os.ReadFile(loc+"/"+CACHE_DIR+"/"+file.Name()+"/"+pageFile.Name())
+						value, err := os.ReadFile(loc + "/" + CACHE_DIR + "/" + file.Name() + "/" + pageFile.Name())
 
 						if err != nil {
 							continue
@@ -65,13 +64,12 @@ func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
 	}
 
 	return &Store{
-		loc: loc,
-		ttl: ttl,
-		logger: logger,
+		loc:      loc,
+		ttl:      ttl,
+		logger:   logger,
 		memCache: memCache,
 	}
 }
-
 
 func (d *Store) Get(key string) ([]byte, error) {
 	key = strings.ReplaceAll(key, "/", "+")
@@ -80,7 +78,7 @@ func (d *Store) Get(key string) ([]byte, error) {
 	if d.memCache[key] != nil {
 		d.logger.Debug("Pulled key from memory", zap.String("key", key))
 
-		if time.Now().Unix() - d.memCache[key].timestamp > int64(d.ttl) {
+		if time.Now().Unix()-d.memCache[key].timestamp > int64(d.ttl) {
 			d.logger.Debug("Cache expired", zap.String("key", key))
 			go d.Purge(key)
 			return nil, errors.New("Cache expired")
@@ -91,7 +89,7 @@ func (d *Store) Get(key string) ([]byte, error) {
 	}
 
 	// load files in directory
-	files, err := os.ReadDir(d.loc+"/"+CACHE_DIR+"/"+key)
+	files, err := os.ReadDir(d.loc + "/" + CACHE_DIR + "/" + key)
 	if err != nil {
 		return nil, errors.New("Key not found in cache")
 	}
@@ -100,7 +98,7 @@ func (d *Store) Get(key string) ([]byte, error) {
 
 	for _, file := range files {
 		if !file.IsDir() {
-			value, err := os.ReadFile(d.loc+"/"+CACHE_DIR+"/"+key+"/"+file.Name())
+			value, err := os.ReadFile(d.loc + "/" + CACHE_DIR + "/" + key + "/" + file.Name())
 			if err != nil {
 				return nil, errors.New("Key not found in cache")
 			}
@@ -120,12 +118,12 @@ func (d *Store) Set(key string, idx int, value []byte) error {
 
 	if d.memCache[key] == nil {
 		d.memCache[key] = &MemCacheItem{
-			content: make(map[int]*string),
-			value: "",
+			content:   make(map[int]*string),
+			value:     "",
 			timestamp: time.Now().Unix(),
 		}
 	}
-	
+
 	d.logger.Debug("-----------------------------------")
 	d.logger.Debug("Setting key in cache", zap.String("key", key))
 	d.logger.Debug("Index", zap.Int("index", idx))
@@ -137,10 +135,10 @@ func (d *Store) Set(key string, idx int, value []byte) error {
 
 	d.memCache[key].value += newValue
 
-	// create page directory 
+	// create page directory
 	os.MkdirAll(d.loc+"/"+CACHE_DIR+"/"+key, os.ModePerm)
 	err := os.WriteFile(d.loc+"/"+CACHE_DIR+"/"+key+"/"+strconv.Itoa(idx), value, os.ModePerm)
-	
+
 	if err != nil {
 		d.logger.Error("Error writing to cache", zap.Error(err))
 	}
@@ -155,10 +153,10 @@ func (d *Store) Purge(key string) {
 	delete(d.memCache, "br::"+key)
 	delete(d.memCache, "gzip::"+key)
 	delete(d.memCache, "none::"+key)
-	
-	os.RemoveAll(d.loc+"/"+CACHE_DIR+"/br::"+key)
-	os.RemoveAll(d.loc+"/"+CACHE_DIR+"/gzip::"+key)
-	os.RemoveAll(d.loc+"/"+CACHE_DIR+"/none::"+key)
+
+	os.RemoveAll(d.loc + "/" + CACHE_DIR + "/br::" + key)
+	os.RemoveAll(d.loc + "/" + CACHE_DIR + "/gzip::" + key)
+	os.RemoveAll(d.loc + "/" + CACHE_DIR + "/none::" + key)
 }
 
 func (d *Store) Flush() error {
@@ -184,7 +182,7 @@ func (d *Store) List() map[string][]string {
 		memIdx++
 	}
 
-	files, err := os.ReadDir(d.loc+"/"+CACHE_DIR)
+	files, err := os.ReadDir(d.loc + "/" + CACHE_DIR)
 	list["disk"] = make([]string, 0)
 
 	if err == nil {
