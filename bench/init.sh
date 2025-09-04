@@ -42,7 +42,7 @@ if ! wp core is-installed --allow-root; then
     --admin_email="${WP_ADMIN_EMAIL:-admin@example.com}" \
     --skip-email \
     --allow-root
-  wp rewrite structure '/archives/%post_id%/%postname%/' --allow-root
+  wp rewrite structure '/%post_id%/%postname%/' --allow-root
   wp plugin install performance-lab --activate --allow-root
   echo "✅ WordPress Installed with admin user"
 fi
