@@ -5,8 +5,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/puzpuzpuz/xsync"
 	"go.uber.org/zap"
 )
 
@@ -14,7 +16,9 @@ type Store struct {
 	loc      string
 	ttl      int
 	logger   *zap.Logger
-	memCache map[string]*MemCacheItem
+	memCache atomic.Value // *xsync.MapOf[string, *MemCacheItem]
+
+	// memCache map[string]*MemCacheItem
 }
 
 type MemCacheItem struct {
@@ -29,23 +33,31 @@ const (
 
 func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
 	os.MkdirAll(loc+"/"+CACHE_DIR, os.ModePerm)
-	memCache := make(map[string]*MemCacheItem)
+	memCache := xsync.NewMapOf[*MemCacheItem]()
+	d := &Store{
+		loc:    loc,
+		ttl:    ttl,
+		logger: logger,
+	}
+	d.memCache.Store(memCache)
 
 	// // Load cache from disk
 	files, err := os.ReadDir(loc + "/" + CACHE_DIR)
 	if err == nil {
 		for _, file := range files {
 			if file.IsDir() {
-				pageFiles, err := os.ReadDir(loc + "/" + CACHE_DIR + "/" + file.Name())
+				filename := file.Name()
+				pageFiles, err := os.ReadDir(loc + "/" + CACHE_DIR + "/" + filename)
 				if err != nil {
 					continue
 				}
 
-				memCache[file.Name()] = &MemCacheItem{
+				// first time, should not have existing value
+				cacheItem, _ := memCache.LoadOrStore(filename, &MemCacheItem{
 					content:   make(map[int]*string),
 					value:     "",
 					timestamp: time.Now().Unix(),
-				}
+				})
 
 				for idx, pageFile := range pageFiles {
 					if !pageFile.IsDir() {
@@ -55,39 +67,49 @@ func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
 							continue
 						}
 						newValue := string(value)
-						memCache[file.Name()].content[idx] = &newValue
-						memCache[file.Name()].value += newValue
+						cacheItem.content[idx] = &newValue
+						cacheItem.value += newValue
 					}
 				}
 			}
 		}
 	}
 
-	return &Store{
-		loc:      loc,
-		ttl:      ttl,
-		logger:   logger,
-		memCache: memCache,
+	return d
+}
+
+func (d *Store) getMemCache() *xsync.MapOf[string, *MemCacheItem] {
+	memCache, ok := d.memCache.Load().(*xsync.MapOf[string, *MemCacheItem])
+	if !ok {
+		return nil
 	}
+	return memCache
 }
 
 func (d *Store) Get(key string) ([]byte, error) {
 	key = strings.ReplaceAll(key, "/", "+")
 	d.logger.Debug("Getting key from cache", zap.String("key", key))
 
-	if d.memCache[key] != nil {
+	memCache := d.getMemCache()
+	cacheItem, ok := memCache.Load(key)
+	if ok {
 		d.logger.Debug("Pulled key from memory", zap.String("key", key))
 
-		if time.Now().Unix()-d.memCache[key].timestamp > int64(d.ttl) {
+		// TODO: fix racing on cacheItem
+		if time.Now().Unix()-cacheItem.timestamp > int64(d.ttl) {
 			d.logger.Debug("Cache expired", zap.String("key", key))
+			// TODO: fix racing when purge running and setting new value with same key
 			go d.Purge(key)
 			return nil, errors.New("Cache expired")
 		}
 
 		d.logger.Debug("Cache hit", zap.String("key", key))
-		return []byte(d.memCache[key].value), nil
+		// TODO: fix racing on cacheItem
+		return []byte(cacheItem.value), nil
 	}
 
+	// TODO: fix racing when new value is writting and someone read it at same time
+	// eg: already wrote 5/10 files but not yet finished(10/10), and someone can only read these 5 files, result as only get partial data
 	// load files in directory
 	files, err := os.ReadDir(d.loc + "/" + CACHE_DIR + "/" + key)
 	if err != nil {
@@ -113,27 +135,29 @@ func (d *Store) Get(key string) ([]byte, error) {
 	return []byte(content), nil
 }
 
+// TODO: why we need index here?
 func (d *Store) Set(key string, idx int, value []byte) error {
 	key = strings.ReplaceAll(key, "/", "+")
 
-	if d.memCache[key] == nil {
-		d.memCache[key] = &MemCacheItem{
-			content:   make(map[int]*string),
-			value:     "",
-			timestamp: time.Now().Unix(),
-		}
-	}
+	memCache := d.getMemCache()
+	cacheItem, _ := memCache.LoadOrStore(key, &MemCacheItem{
+		content:   make(map[int]*string),
+		value:     "",
+		timestamp: time.Now().Unix(),
+	})
 
 	d.logger.Debug("-----------------------------------")
 	d.logger.Debug("Setting key in cache", zap.String("key", key))
 	d.logger.Debug("Index", zap.Int("index", idx))
 	newValue := string(value)
 
+	// TODO: fix racing on cacheItem
 	if idx == 0 {
-		d.memCache[key].timestamp = time.Now().Unix()
+		cacheItem.timestamp = time.Now().Unix()
 	}
 
-	d.memCache[key].value += newValue
+	// TODO: fix racing on cacheItem
+	cacheItem.value += newValue
 
 	// create page directory
 	os.MkdirAll(d.loc+"/"+CACHE_DIR+"/"+key, os.ModePerm)
@@ -150,9 +174,10 @@ func (d *Store) Purge(key string) {
 	key = strings.ReplaceAll(key, "/", "+")
 	d.logger.Debug("Removing key from cache", zap.String("key", key))
 
-	delete(d.memCache, "br::"+key)
-	delete(d.memCache, "gzip::"+key)
-	delete(d.memCache, "none::"+key)
+	memCache := d.getMemCache()
+	memCache.Delete("br::" + key)
+	memCache.Delete("gzip::" + key)
+	memCache.Delete("none::" + key)
 
 	os.RemoveAll(d.loc + "/" + CACHE_DIR + "/br::" + key)
 	os.RemoveAll(d.loc + "/" + CACHE_DIR + "/gzip::" + key)
@@ -160,7 +185,7 @@ func (d *Store) Purge(key string) {
 }
 
 func (d *Store) Flush() error {
-	d.memCache = make(map[string]*MemCacheItem)
+	d.memCache.Store(xsync.NewMapOf[*MemCacheItem]())
 	err := os.RemoveAll(d.loc + "/" + CACHE_DIR)
 
 	if err == nil {
@@ -173,14 +198,14 @@ func (d *Store) Flush() error {
 }
 
 func (d *Store) List() map[string][]string {
+	memCache := d.getMemCache()
 	list := make(map[string][]string)
-	list["mem"] = make([]string, len(d.memCache))
-	memIdx := 0
+	list["mem"] = make([]string, 0, memCache.Size())
 
-	for key, _ := range d.memCache {
-		list["mem"][memIdx] = key
-		memIdx++
-	}
+	memCache.Range(func(key string, value *MemCacheItem) bool {
+		list["mem"] = append(list["mem"], key)
+		return true
+	})
 
 	files, err := os.ReadDir(d.loc + "/" + CACHE_DIR)
 	list["disk"] = make([]string, 0)

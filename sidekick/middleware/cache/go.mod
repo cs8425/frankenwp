@@ -4,6 +4,7 @@ go 1.22.1
 
 require (
 	github.com/caddyserver/caddy/v2 v2.7.6
+	github.com/puzpuzpuz/xsync v1.5.2
 	go.uber.org/zap v1.27.0
 )
 
