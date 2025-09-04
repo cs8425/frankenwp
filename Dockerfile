@@ -36,8 +36,6 @@ LABEL org.opencontainers.image.vendor="Stephen Miracle"
 
 ARG USER
 
-# Replace the official binary by the one contained your custom modules
-COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
 ENV FORCE_HTTPS=0
 ENV PHP_INI_SCAN_DIR=$PHP_INI_DIR/conf.d
 
@@ -91,13 +89,32 @@ RUN install-php-extensions \
     redis \
     memcached
 
+COPY --from=wp /usr/src/wordpress /usr/src/wordpress
+COPY --from=wp /usr/local/etc/php/conf.d /usr/local/etc/php/conf.d/
+COPY --from=wp /usr/local/bin/docker-entrypoint.sh /usr/local/bin/
+
+RUN sed -i \
+    -e 's/\[ "$1" = '\''php-fpm'\'' \]/\[\[ "$1" == frankenphp* \]\]/g' \
+    -e 's/php-fpm/frankenphp/g' \
+    /usr/local/bin/docker-entrypoint.sh
+
+# Add $_SERVER['ssl'] = true; when env USE_SSL = true is set to the wp-config.php file here: /usr/local/bin/wp-config-docker.php
+RUN sed -i 's/<?php/<?php if (!!getenv("FORCE_HTTPS")) { \$_SERVER["HTTPS"] = "on"; } define( "FS_METHOD", "direct" ); set_time_limit(300); /g' /usr/src/wordpress/wp-config-docker.php
+
+#RUN chown -R ${USER}:${USER} /usr/src/wordpress && \
+#    chown -R ${USER}:${USER} /usr/local/bin/docker-entrypoint.sh
+
+
+# Adding WordPress CLI
+RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
+    chmod +x wp-cli.phar && \
+    mv wp-cli.phar /usr/local/bin/wp
 
 RUN cp $PHP_INI_DIR/php.ini-production $PHP_INI_DIR/php.ini
 COPY php.ini $PHP_INI_DIR/conf.d/wp.ini
 
-COPY --from=wp /usr/src/wordpress /usr/src/wordpress
-COPY --from=wp /usr/local/etc/php/conf.d /usr/local/etc/php/conf.d/
-COPY --from=wp /usr/local/bin/docker-entrypoint.sh /usr/local/bin/
+# Replace the official binary by the one contained your custom modules
+COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
 
 # docker-entrypoint.sh will copy /usr/src/wordpress to /var/www/html when first startup
 COPY wp-content/mu-plugins /usr/src/wordpress/wp-content/mu-plugins
@@ -106,22 +123,6 @@ RUN mkdir /usr/src/wordpress/wp-content/cache
 WORKDIR /var/www/html
 
 VOLUME /var/www/html
-
-
-RUN sed -i \
-    -e 's/\[ "$1" = '\''php-fpm'\'' \]/\[\[ "$1" == frankenphp* \]\]/g' \
-    -e 's/php-fpm/frankenphp/g' \
-    /usr/local/bin/docker-entrypoint.sh
-
-
-
-# Add $_SERVER['ssl'] = true; when env USE_SSL = true is set to the wp-config.php file here: /usr/local/bin/wp-config-docker.php
-RUN sed -i 's/<?php/<?php if (!!getenv("FORCE_HTTPS")) { \$_SERVER["HTTPS"] = "on"; } define( "FS_METHOD", "direct" ); set_time_limit(300); /g' /usr/src/wordpress/wp-config-docker.php
-
-# Adding WordPress CLI
-RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
-    chmod +x wp-cli.phar && \
-    mv wp-cli.phar /usr/local/bin/wp
 
 COPY Caddyfile /etc/caddy/Caddyfile
 
@@ -132,9 +133,7 @@ RUN useradd -D ${USER} || true && \
 # Caddy requires write access to /data/caddy and /config/caddy
 RUN chown -R ${USER}:${USER} /data/caddy && \
     chown -R ${USER}:${USER} /config/caddy && \
-    chown -R ${USER}:${USER} /var/www/html && \
-    chown -R ${USER}:${USER} /usr/src/wordpress && \
-    chown -R ${USER}:${USER} /usr/local/bin/docker-entrypoint.sh
+    chown -R ${USER}:${USER} /var/www/html
 
 USER $USER
 
