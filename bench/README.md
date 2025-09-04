@@ -274,3 +274,69 @@ running (2m00.8s), 00/50 VUs, 8495 complete and 0 interrupted iterations
 default ✓ [======================================] 00/50 VUs  2m0s
 ERRO[0121] thresholds on metrics 'http_req_duration' have been crossed
 ```
+
+### haproxy + php-fpm (+ caddy)
+* haproxy use lua check backend
+	* only static file serve from caddy
+	* *.php or any not-exist => php-fpm
+* http response compression supported: br zstd gzip
+```
+$ bash run-bench.sh haproxy.001.html 
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+     execution: local
+        script: k6-bench.js
+ web dashboard: http://127.0.0.1:5665
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 50 max VUs, 2m30s max duration (incl. graceful stop):
+              * default: Up to 50 looping VUs for 2m0s over 2 stages (gracefulRampDown: 30s, gracefulStop: 30s)
+
+
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✗ 'p(50)<500' p(50)=589.93ms
+    ✗ 'p(90)<800' p(90)=1.41s
+    ✗ 'p(95)<1000' p(95)=1.79s
+    ✗ 'p(99)<1200' p(99)=2.29s
+    ✗ 'max<1500' max=4.35s
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 8659    71.553456/s
+    checks_succeeded...: 100.00% 8659 out of 8659
+    checks_failed......: 0.00%   0 out of 8659
+
+    ✓ status 200
+
+    HTTP
+    http_req_duration..............: avg=694.49ms min=31.55ms med=589.93ms max=4.35s p(90)=1.41s p(95)=1.79s
+      { expected_response:true }...: avg=694.49ms min=31.55ms med=589.93ms max=4.35s p(90)=1.41s p(95)=1.79s
+    http_req_failed................: 0.00%  0 out of 8659
+    http_reqs......................: 8659   71.553456/s
+
+    EXECUTION
+    iteration_duration.............: avg=694.82ms min=31.74ms med=590.27ms max=4.35s p(90)=1.41s p(95)=1.79s
+    iterations.....................: 8659   71.553456/s
+    vus............................: 3      min=3         max=50
+    vus_max........................: 50     min=50        max=50
+
+    NETWORK
+    data_received..................: 763 MB 6.3 MB/s
+    data_sent......................: 961 kB 7.9 kB/s
+
+
+
+
+running (2m01.0s), 00/50 VUs, 8659 complete and 0 interrupted iterations
+default ✓ [======================================] 00/50 VUs  2m0s
+ERRO[0121] thresholds on metrics 'http_req_duration' have been crossed
+```

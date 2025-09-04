@@ -1,0 +1,13 @@
+{
+	persist_config off
+	auto_https off
+	skip_install_trust
+	admin off
+	#debug
+}
+
+http:// {
+	bind unix//var/run/php/caddy.sock|0666
+	root * /var/www/html
+	file_server
+}
