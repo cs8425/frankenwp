@@ -9,5 +9,6 @@
 http:// {
 	bind unix//var/run/php/caddy.sock|0666
 	root * /var/www/html
+	encode zstd gzip
 	file_server
 }

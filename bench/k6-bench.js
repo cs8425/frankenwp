@@ -52,6 +52,12 @@ export let options = {
 	],
 };
 
+const params = {
+	headers: {
+		'Accept-Encoding': 'gzip',
+	},
+};
+
 let i = 0;
 export default function () {
 	// force skip sidekick cache
@@ -62,7 +68,7 @@ export default function () {
 	// const idx = Math.floor(Math.random() * pages.length);
 	const idx = i++ % pagesSz;
 	let page = pages[idx];
-	const res = http.get(`${WP_URL}${page}`);
+	const res = http.get(`${WP_URL}${page}`, params);
 
 	check(res, {
 		'status 200': (r) => r.status === 200
