@@ -44,6 +44,15 @@ if ! wp core is-installed --allow-root; then
     --allow-root
   wp rewrite structure '/%post_id%/%postname%/' --allow-root
   wp plugin install performance-lab --activate --allow-root
+
+  # enable more details in server timing header
+  #wp option update perflab_server_timing_settings --format=json '{"benchmarking_actions":[],"benchmarking_filters":[],"output_buffering":true}' --allow-root
+
+  # setup some cache
+  wp plugin install atec-cache-apcu --activate --allow-root
+  wp option update atec_WPCA_settings --format=json '{"salt":"b8348898","o_cache":true,"o_admin":false,"o_stats":false,"p_cache":false,"p_admin":false,"p_debug":false}' --allow-root
+  wp eval 'include( WP_PLUGIN_DIR . "/atec-cache-apcu/includes/atec-wpca-install-ocache.php" );use ATEC_WPCA\Install_OCache; Install_OCache::init(true);' --allow-root
+
   echo "✅ WordPress Installed with admin user"
 fi
 
