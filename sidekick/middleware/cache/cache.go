@@ -23,10 +23,13 @@ type Cache struct {
 	PurgeKey           string
 	CacheHeaderName    string
 	BypassPathPrefixes []string
+	BypassPathRegex    string
 	BypassHome         bool
 	CacheResponseCodes []string
 	TTL                int
 	Store              *Store
+
+	pathRx *regexp.Regexp
 }
 
 func init() {
@@ -61,8 +64,21 @@ func (c *Cache) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		case "bypass_path_prefixes":
 			c.BypassPathPrefixes = strings.Split(strings.TrimSpace(value), ",")
 
+		case "bypass_path_regex":
+			value = strings.TrimSpace(value)
+			if len(value) != 0 {
+				_, err := regexp.Compile(value)
+				if err != nil {
+					return err
+				}
+			} else {
+				// bypass all media, images, css, js, etc
+				value = ".*(\\.[^.]+)$"
+			}
+			c.BypassPathRegex = value
+
 		case "bypass_home":
-			if value == "true" {
+			if strings.ToLower(value) == "true" {
 				c.BypassHome = true
 			}
 
@@ -124,8 +140,20 @@ func (c *Cache) Provision(ctx caddy.Context) error {
 		c.BypassPathPrefixes = strings.Split(strings.TrimSpace(os.Getenv("BYPASS_PATH_PREFIX")), ",")
 	}
 
-	if c.BypassHome == false {
-		if os.Getenv("BYPASS_HOME") == strings.ToLower("true") {
+	if c.BypassPathRegex == "" {
+		// default bypass all media, images, css, js, etc
+		c.BypassPathRegex = ".*(\\.[^.]+)$"
+	}
+	if c.BypassPathRegex != "" {
+		rx, err := regexp.Compile(c.BypassPathRegex)
+		if err != nil {
+			return err
+		}
+		c.pathRx = rx
+	}
+
+	if !c.BypassHome {
+		if strings.ToLower(os.Getenv("BYPASS_HOME")) == "true" {
 			c.BypassHome = true
 		}
 	}
@@ -186,11 +214,11 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 		}
 	}
 
-	// bypass all media, images, css, js, etc
-	match, _ := regexp.MatchString(".*(\\.[^.]+)$", r.URL.Path)
-
-	if match {
-		bypass = true
+	// bypass by regex
+	// default: ".*(\\.[^.]+)$", bypass all media, images, css, js, etc
+	if c.pathRx != nil {
+		bypass = c.pathRx.MatchString(r.URL.Path)
+		c.logger.Debug("wp cache - bypass regex", zap.String("regex", c.BypassPathRegex))
 	}
 
 	if c.BypassHome && r.URL.Path == "/" {

@@ -82,7 +82,7 @@ func (r *CustomWriter) WriteHeader(status int) {
 	r.Logger.Debug("Writing customwriter response", zap.String("path", r.origUrl.Path))
 	bypass := true
 
-	// TODO: more check response for bypass
+	// TODO: more check on response for bypass
 	// if bypass {
 	// 	bypass = strings.HasSuffix(r.origUrl.Path, ".php")
 	// }
