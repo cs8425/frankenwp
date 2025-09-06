@@ -254,13 +254,24 @@ func (d *Store) List() map[string][]string {
 		return true
 	})
 
-	files, err := os.ReadDir(d.loc + "/" + CACHE_DIR)
+	basePath := path.Join(d.loc, CACHE_DIR)
+	files, err := os.ReadDir(basePath)
 	list["disk"] = make([]string, 0)
 
 	if err == nil {
 		for _, file := range files {
 			if !file.IsDir() {
-				list["disk"] = append(list["disk"], file.Name())
+				continue
+			}
+			dirName := file.Name()
+			fp := path.Join(basePath, dirName)
+			for _, name := range CachedContentEncoding {
+				ckPath := path.Join(fp, "."+name)
+				_, err := os.Stat(ckPath)
+				if errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				list["disk"] = append(list["disk"], dirName+"::"+name)
 			}
 		}
 	}
