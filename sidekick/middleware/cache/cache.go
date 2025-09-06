@@ -20,6 +20,7 @@ type Cache struct {
 	logger             *zap.Logger
 	Loc                string
 	PurgePath          string
+	PurgeKeyHeader     string
 	PurgeKey           string
 	CacheHeaderName    string
 	BypassPathPrefixes []string
@@ -106,7 +107,10 @@ func (c *Cache) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			c.PurgePath = value
 
 		case "purge_key":
-			c.PurgeKey = value
+			c.PurgeKey = strings.TrimSpace(value)
+
+		case "purge_key_header":
+			c.PurgeKeyHeader = value
 
 		case "cache_header_name":
 			c.CacheHeaderName = value
@@ -178,6 +182,13 @@ func (c *Cache) Provision(ctx caddy.Context) error {
 		c.PurgeKey = os.Getenv("PURGE_KEY")
 	}
 
+	if c.PurgeKeyHeader == "" {
+		c.PurgeKeyHeader = os.Getenv("PURGE_KEY_HEADER")
+		if c.PurgeKeyHeader == "" {
+			c.PurgeKeyHeader = "X-WPSidekick-Purge-Key"
+		}
+	}
+
 	if c.CacheHeaderName == "" {
 		c.CacheHeaderName = os.Getenv("CACHE_HEADER_NAME")
 		if c.CacheHeaderName == "" {
@@ -231,7 +242,7 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 
 	db := c.Store
 	if strings.HasPrefix(r.URL.Path, c.PurgePath) {
-		key := r.Header.Get("X-WPSidekick-Purge-Key")
+		key := r.Header.Get(c.PurgeKeyHeader)
 		if key != c.PurgeKey {
 			c.logger.Warn("wp cache - purge - invalid key", zap.String("path", r.URL.Path))
 		} else {
