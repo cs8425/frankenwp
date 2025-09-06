@@ -9,10 +9,23 @@ FROM dunglas/frankenphp:builder-php${PHP_VERSION} AS builder
 # Copy xcaddy in the builder image
 COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
 
+# build cache for FrankenPHP
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
+
+# build cache for sidekick cache
+COPY ./sidekick/middleware/cache/go.mod ./sidekick/middleware/cache/go.sum ./cache/
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    cd ./cache/ && go mod download
+
 COPY ./sidekick/middleware/cache ./cache
 
 # CGO must be enabled to build FrankenPHP
-RUN CGO_ENABLED=1 XCADDY_SETCAP=1 XCADDY_GO_BUILD_FLAGS='-ldflags="-w -s" -trimpath' \
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 XCADDY_SETCAP=1 XCADDY_GO_BUILD_FLAGS='-ldflags="-w -s" -trimpath' \
     CGO_CFLAGS=$(php-config --includes) \
     CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
     xcaddy build \
