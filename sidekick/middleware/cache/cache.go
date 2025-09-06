@@ -172,8 +172,7 @@ func (Cache) CaddyModule() caddy.ModuleInfo {
 }
 
 // ServeHTTP implements the caddy.Handler interface.
-func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request,
-	next caddyhttp.Handler) error {
+func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	bypass := false
 	encoding := ""
 
@@ -203,41 +202,30 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request,
 	}
 
 	db := c.Store
-	nw := NewCustomWriter(w, r, db, c.logger, r.URL.Path, c.CacheResponseCodes, c.CacheHeaderName)
-
-	if strings.Contains(r.URL.Path, c.PurgePath) && r.Method == "GET" {
+	if strings.HasPrefix(r.URL.Path, c.PurgePath) {
 		key := r.Header.Get("X-WPSidekick-Purge-Key")
-
-		if key == c.PurgeKey {
-			cacheList := db.List()
-
-			json.NewEncoder(w).Encode(cacheList)
-
-			return nil
-		} else {
+		if key != c.PurgeKey {
 			c.logger.Warn("wp cache - purge - invalid key", zap.String("path", r.URL.Path))
-		}
-	}
+		} else {
+			switch r.Method {
+			case "GET":
+				cacheList := db.List()
+				json.NewEncoder(w).Encode(cacheList)
+				return nil
 
-	if strings.Contains(r.URL.Path, c.PurgePath) && r.Method == "POST" {
-		key := r.Header.Get("X-WPSidekick-Purge-Key")
+			case "POST":
+				pathToPurge := strings.Replace(r.URL.Path, c.PurgePath, "", 1)
+				c.logger.Debug("wp cache - purge", zap.String("path", pathToPurge))
 
-		if key == c.PurgeKey {
-			pathToPurge := strings.Replace(r.URL.Path, c.PurgePath, "", 1)
-			c.logger.Debug("wp cache - purge", zap.String("path", pathToPurge))
-
-			if len(pathToPurge) < 2 {
-				go db.Flush()
-			} else {
-				go db.Purge(pathToPurge)
+				if len(pathToPurge) < 2 {
+					go db.Flush()
+				} else {
+					go db.Purge(pathToPurge)
+				}
+				w.Write([]byte("OK"))
+				return nil
 			}
-		} else {
-			c.logger.Warn("wp cache - purge - invalid key", zap.String("path", r.URL.Path))
 		}
-
-		w.Write([]byte("OK"))
-
-		return nil
 	}
 
 	// bypass if is logged in. We don't want to cache admin bars
@@ -270,6 +258,7 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request,
 	}
 
 	if err == nil {
+		// TODO: set original status code
 		w.Header().Set(c.CacheHeaderName, "HIT")
 		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
 		w.Header().Set("Server", "Caddy")
@@ -280,5 +269,6 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request,
 		return nil
 	}
 
+	nw := NewCustomWriter(w, r, db, c.logger, r.URL.Path, c.CacheResponseCodes, c.CacheHeaderName)
 	return next.ServeHTTP(nw, r)
 }
