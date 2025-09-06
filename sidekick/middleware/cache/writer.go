@@ -65,9 +65,9 @@ func (r *CustomWriter) Unwrap() http.ResponseWriter {
 // set cache on response end
 func (r *CustomWriter) Close() error {
 	r.mx.Lock()
-	ct := r.contentEncoding
+	ce := r.contentEncoding
 	r.mx.Unlock()
-	r.Store.Set(r.origUrl.Path, ct, "", int(atomic.LoadInt32(&r.status)), r.buf)
+	r.Store.Set(r.origUrl.Path, ce, "", int(atomic.LoadInt32(&r.status)), r.buf)
 	return nil
 }
 

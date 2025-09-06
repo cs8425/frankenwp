@@ -26,6 +26,7 @@ type Cache struct {
 	BypassPathPrefixes []string
 	BypassPathRegex    string
 	BypassHome         bool
+	BypassDebugQuery   string
 	CacheResponseCodes []string
 	TTL                int
 	Store              *Store
@@ -82,6 +83,9 @@ func (c *Cache) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if strings.ToLower(value) == "true" {
 				c.BypassHome = true
 			}
+
+		case "bypass_debug_query":
+			c.BypassDebugQuery = strings.TrimSpace(value)
 
 		case "cache_response_codes":
 			codes := strings.Split(strings.TrimSpace(value), ",")
@@ -162,6 +166,13 @@ func (c *Cache) Provision(ctx caddy.Context) error {
 		}
 	}
 
+	if c.BypassDebugQuery == "" {
+		c.BypassDebugQuery = os.Getenv("BYPASS_DEBUG_QUERY")
+		if c.BypassDebugQuery == "" {
+			c.BypassDebugQuery = "WPEverywhere-NOCACHE"
+		}
+	}
+
 	if c.TTL == 0 {
 		ttl, err := strconv.Atoi(os.Getenv("TTL"))
 		if err != nil {
@@ -213,36 +224,12 @@ func (Cache) CaddyModule() caddy.ModuleInfo {
 // ServeHTTP implements the caddy.Handler interface.
 func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	bypass := false
-	encoding := ""
-
 	c.logger.Debug("HTTP Version", zap.String("Version", r.Proto))
 
-	for _, prefix := range c.BypassPathPrefixes {
-		if strings.HasPrefix(r.URL.Path, prefix) && prefix != "" {
-			c.logger.Debug("wp cache - bypass prefix", zap.String("prefix", prefix))
-			bypass = true
-			break
-		}
-	}
-
-	// bypass by regex
-	// default: ".*(\\.[^.]+)$", bypass all media, images, css, js, etc
-	if c.pathRx != nil {
-		bypass = c.pathRx.MatchString(r.URL.Path)
-		c.logger.Debug("wp cache - bypass regex", zap.String("regex", c.BypassPathRegex))
-	}
-
-	if c.BypassHome && r.URL.Path == "/" {
-		bypass = true
-	}
-
-	if bypass {
-		return next.ServeHTTP(w, r)
-	}
-
+	reqHdr := r.Header
 	db := c.Store
 	if strings.HasPrefix(r.URL.Path, c.PurgePath) {
-		key := r.Header.Get(c.PurgeKeyHeader)
+		key := reqHdr.Get(c.PurgeKeyHeader)
 		if key != c.PurgeKey {
 			c.logger.Warn("wp cache - purge - invalid key", zap.String("path", r.URL.Path))
 		} else {
@@ -256,6 +243,7 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 				pathToPurge := strings.Replace(r.URL.Path, c.PurgePath, "", 1)
 				c.logger.Debug("wp cache - purge", zap.String("path", pathToPurge))
 
+				// TODO: fix concurrent issue when flush/pruge running and new cache setting
 				if len(pathToPurge) < 2 {
 					go db.Flush()
 				} else {
@@ -272,49 +260,82 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 		return next.ServeHTTP(w, r)
 	}
 
-	// bypass if is logged in. We don't want to cache admin bars
-	cookies := r.Header.Get("Cookie")
-	if strings.Contains(cookies, "wordpress_logged_in") {
-		return next.ServeHTTP(w, r)
+	if c.BypassDebugQuery != "" {
+		bypass = r.URL.Query().Has(c.BypassDebugQuery)
 	}
 
-	requestHeader := r.Header
-	requestEncoding := requestHeader["Accept-Encoding"]
-
-	for _, re := range requestEncoding {
-		if strings.Contains(re, "br") {
-			encoding = "br"
-			break
-		} else if strings.Contains(re, "gzip") {
-			encoding = "gzip"
+	if !bypass {
+		for _, prefix := range c.BypassPathPrefixes {
+			if strings.HasPrefix(r.URL.Path, prefix) && prefix != "" {
+				c.logger.Debug("wp cache - bypass prefix", zap.String("prefix", prefix))
+				bypass = true
+				break
+			}
 		}
 	}
 
-	if encoding == "" {
-		encoding = "none"
+	// bypass by regex
+	// default: ".*(\\.[^.]+)$", bypass all media, images, css, js, etc
+	if !bypass && c.pathRx != nil {
+		bypass = c.pathRx.MatchString(r.URL.Path)
+		c.logger.Debug("wp cache - bypass regex", zap.String("regex", c.BypassPathRegex))
+	}
+
+	if !bypass && c.BypassHome && r.URL.Path == "/" {
+		bypass = true
+	}
+
+	// bypass if is logged in. We don't want to cache admin bars
+	if !bypass {
+		cookies := r.Cookies()
+		for _, cookie := range cookies {
+			if strings.HasPrefix(cookie.Name, "wordpress_logged_in") {
+				bypass = true
+				break
+			}
+		}
+	}
+
+	hdr := w.Header()
+	if bypass {
+		hdr.Set(c.CacheHeaderName, "BYPASS")
+		return next.ServeHTTP(w, r)
 	}
 
 	// TODO: custom cacheKey by query, header ...
 	cacheKey := ""
-	cacheKey = c.Store.buildCacheKey(r.URL.Path, encoding, cacheKey)
-	cacheData, stateCode, err := db.Get(cacheKey)
+	cacheKey = c.Store.buildCacheKey(r.URL.Path, cacheKey)
 
-	if err != nil {
-		c.logger.Debug("wp cache - error - "+cacheKey, zap.Error(err))
+	requestEncoding := strings.Split(strings.Join(reqHdr["Accept-Encoding"], ""), ",")
+	requestEncoding = append(requestEncoding, "none")
+
+	// TODO: if only have uncompressed data, we should try to cached a compressed version
+	var cacheData []byte
+	var stateCode int
+	var err error
+	ce := ""
+	for _, re := range requestEncoding {
+		ce = strings.TrimSpace(re)
+		cacheData, stateCode, err = db.Get(cacheKey, ce)
+		if err == nil {
+			break
+		}
 	}
-
 	if err == nil {
 		// TODO: set original status code
-		w.Header().Set(c.CacheHeaderName, "HIT")
-		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
-		w.Header().Set("Server", "Caddy")
-		w.Header().Set("Vary", "Accept-Encoding")
-		w.Header().Set("Content-Encoding", encoding)
+		hdr.Set(c.CacheHeaderName, "HIT")
+		hdr.Set("Content-Type", "text/html; charset=UTF-8")
+		hdr.Set("Server", "Caddy")
+		hdr.Set("Vary", "Accept-Encoding")
+		if ce != "none" {
+			hdr.Set("Content-Encoding", ce)
+		}
 		w.WriteHeader(stateCode)
 		w.Write(cacheData)
 
 		return nil
 	}
+	c.logger.Debug("wp cache - error - "+cacheKey, zap.Error(err))
 
 	nw := NewCustomWriter(w, r, db, c.logger, c.CacheResponseCodes, c.CacheHeaderName)
 	defer nw.Close()

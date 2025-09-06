@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,13 @@ import (
 var (
 	ErrCacheExpired  = errors.New("cache expired")
 	ErrCacheNotFound = errors.New("key not found in cache")
+
+	CachedContentEncoding = []string{
+		"none",
+		"gzip",
+		"br",
+		"zstd",
+	}
 )
 
 type Store struct {
@@ -93,12 +101,12 @@ func (d *Store) getMemCache() *xsync.MapOf[string, *MemCacheItem] {
 	return memCache
 }
 
-func (d *Store) Get(key string) ([]byte, int, error) {
+func (d *Store) Get(key string, ce string) ([]byte, int, error) {
 	key = strings.ReplaceAll(key, "/", "+")
 	d.logger.Debug("Getting key from cache", zap.String("key", key))
 
 	memCache := d.getMemCache()
-	cacheItem, ok := memCache.Load(key)
+	cacheItem, ok := memCache.Load(key + "::" + ce)
 	if ok {
 		d.logger.Debug("Pulled key from memory", zap.String("key", key))
 
@@ -117,17 +125,21 @@ func (d *Store) Get(key string) ([]byte, int, error) {
 	return nil, 0, ErrCacheNotFound
 }
 
-// TODO: why we need index here?
-func (d *Store) Set(reqPath string, ct string, cacheKey string, stateCode int, value []byte) error {
-	key := d.buildCacheKey(reqPath, ct, cacheKey)
+func (d *Store) Set(reqPath string, ce string, cacheKey string, stateCode int, value []byte) error {
+	// skip if Content-Encoding not in list
+	if !slices.Contains(CachedContentEncoding, ce) {
+		return nil
+	}
+
+	key := d.buildCacheKey(reqPath, cacheKey)
 	d.logger.Debug("Cache Key", zap.String("Key", key))
 
 	key = strings.ReplaceAll(key, "/", "+")
 
 	memCache := d.getMemCache()
-	_, existed := memCache.LoadAndStore(key, &MemCacheItem{
+	_, existed := memCache.LoadAndStore(key+"::"+ce, &MemCacheItem{
 		stateCode:       stateCode,
-		contentEncoding: ct,
+		contentEncoding: ce,
 		value:           value,
 		timestamp:       time.Now().Unix(),
 	})
@@ -138,7 +150,7 @@ func (d *Store) Set(reqPath string, ct string, cacheKey string, stateCode int, v
 	// create page directory
 	basePath := path.Join(d.loc, CACHE_DIR, key)
 	os.MkdirAll(basePath, os.ModePerm)
-	err := os.WriteFile(path.Join(basePath, "."+ct), value, os.ModePerm)
+	err := os.WriteFile(path.Join(basePath, "."+ce), value, os.ModePerm)
 
 	if err != nil {
 		d.logger.Error("Error writing to cache", zap.Error(err))
@@ -152,25 +164,56 @@ func (d *Store) Purge(key string) {
 	d.logger.Debug("Removing key from cache", zap.String("key", key))
 
 	memCache := d.getMemCache()
-	memCache.Delete("br::" + key)
-	memCache.Delete("gzip::" + key)
-	memCache.Delete("none::" + key)
+	rmKeys := make([]string, 0, 4)
+	memCache.Range(func(k string, v *MemCacheItem) bool {
+		if strings.HasPrefix(k, key) {
+			rmKeys = append(rmKeys, k)
+		}
+		return true
+	})
+	for _, k := range rmKeys {
+		d.logger.Debug("Removing key from mem cache", zap.String("key", k))
+		memCache.Delete(k)
+	}
 
-	os.RemoveAll(d.loc + "/" + CACHE_DIR + "/br::" + key)
-	os.RemoveAll(d.loc + "/" + CACHE_DIR + "/gzip::" + key)
-	os.RemoveAll(d.loc + "/" + CACHE_DIR + "/none::" + key)
+	basePath := path.Join(d.loc, CACHE_DIR)
+	files, err := os.ReadDir(basePath)
+	if err != nil {
+		d.logger.Error("Error Removing key from disk cache", zap.Error(err))
+		return
+	}
+	for _, f := range files {
+		name := f.Name()
+		if !strings.HasPrefix(name, key) {
+			continue
+		}
+		fp := path.Join(basePath, name)
+		// err := os.RemoveAll(fp)
+		for _, name := range CachedContentEncoding {
+			err := os.Remove(path.Join(fp, "."+name))
+			if err != nil {
+				d.logger.Error("Error Removing key from disk cache", zap.String("fp", fp), zap.Error(err))
+			}
+		}
+	}
 }
 
 func (d *Store) Flush() error {
 	d.memCache.Store(xsync.NewMapOf[*MemCacheItem]())
-	err := os.RemoveAll(d.loc + "/" + CACHE_DIR)
 
-	if err == nil {
-		os.MkdirAll(d.loc+"/"+CACHE_DIR, os.ModePerm)
-	} else {
+	basePath := path.Join(d.loc, CACHE_DIR)
+	files, err := os.ReadDir(basePath)
+	if err != nil {
 		d.logger.Error("Error flushing cache", zap.Error(err))
+		return err
 	}
-
+	for _, f := range files {
+		fp := path.Join(basePath, f.Name())
+		err = os.RemoveAll(fp)
+		if err != nil {
+			d.logger.Error("Error flushing cache", zap.String("fp", fp), zap.Error(err))
+		}
+	}
 	return err
 }
 
@@ -198,10 +241,7 @@ func (d *Store) List() map[string][]string {
 	return list
 }
 
-func (d *Store) buildCacheKey(reqPath string, contentEncoding string, cacheKey string) string {
+func (d *Store) buildCacheKey(reqPath string, cacheKey string) string {
 	// cacheKey := contentEncoding + "::" + reqPath
-	if len(cacheKey) == 0 {
-		return fmt.Sprintf("%v::%v", reqPath, contentEncoding)
-	}
-	return fmt.Sprintf("%v::%v::cacheKey", reqPath, contentEncoding, cacheKey)
+	return fmt.Sprintf("%v::%v", reqPath, cacheKey)
 }
