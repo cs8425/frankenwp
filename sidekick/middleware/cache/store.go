@@ -2,14 +2,20 @@ package cache
 
 import (
 	"errors"
+	"fmt"
 	"os"
-	"strconv"
+	"path"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/puzpuzpuz/xsync"
 	"go.uber.org/zap"
+)
+
+var (
+	ErrCacheExpired  = errors.New("cache expired")
+	ErrCacheNotFound = errors.New("key not found in cache")
 )
 
 type Store struct {
@@ -22,9 +28,12 @@ type Store struct {
 }
 
 type MemCacheItem struct {
-	content   map[int]*string
-	value     string
 	timestamp int64
+
+	stateCode       int
+	contentEncoding string
+	header          [][]string
+	value           []byte
 }
 
 const (
@@ -42,7 +51,7 @@ func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
 	d.memCache.Store(memCache)
 
 	// // Load cache from disk
-	files, err := os.ReadDir(loc + "/" + CACHE_DIR)
+	/*files, err := os.ReadDir(loc + "/" + CACHE_DIR)
 	if err == nil {
 		for _, file := range files {
 			if file.IsDir() {
@@ -54,26 +63,24 @@ func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
 
 				// first time, should not have existing value
 				cacheItem, _ := memCache.LoadOrStore(filename, &MemCacheItem{
-					content:   make(map[int]*string),
-					value:     "",
+					value:     nil,
 					timestamp: time.Now().Unix(),
 				})
 
-				for idx, pageFile := range pageFiles {
+				// TODO: load header, stateCode, timestamp
+				for _, pageFile := range pageFiles {
 					if !pageFile.IsDir() {
 						value, err := os.ReadFile(loc + "/" + CACHE_DIR + "/" + file.Name() + "/" + pageFile.Name())
 
 						if err != nil {
 							continue
 						}
-						newValue := string(value)
-						cacheItem.content[idx] = &newValue
-						cacheItem.value += newValue
+						cacheItem.value = append(cacheItem.value, value...)
 					}
 				}
 			}
 		}
-	}
+	}*/
 
 	return d
 }
@@ -86,7 +93,7 @@ func (d *Store) getMemCache() *xsync.MapOf[string, *MemCacheItem] {
 	return memCache
 }
 
-func (d *Store) Get(key string) ([]byte, error) {
+func (d *Store) Get(key string) ([]byte, int, error) {
 	key = strings.ReplaceAll(key, "/", "+")
 	d.logger.Debug("Getting key from cache", zap.String("key", key))
 
@@ -95,73 +102,43 @@ func (d *Store) Get(key string) ([]byte, error) {
 	if ok {
 		d.logger.Debug("Pulled key from memory", zap.String("key", key))
 
-		// TODO: fix racing on cacheItem
 		if time.Now().Unix()-cacheItem.timestamp > int64(d.ttl) {
 			d.logger.Debug("Cache expired", zap.String("key", key))
 			// TODO: fix racing when purge running and setting new value with same key
 			go d.Purge(key)
-			return nil, errors.New("Cache expired")
+			return nil, 0, ErrCacheExpired
 		}
 
 		d.logger.Debug("Cache hit", zap.String("key", key))
-		// TODO: fix racing on cacheItem
-		return []byte(cacheItem.value), nil
+		return []byte(cacheItem.value), cacheItem.stateCode, nil
 	}
 
-	// TODO: fix racing when new value is writting and someone read it at same time
-	// eg: already wrote 5/10 files but not yet finished(10/10), and someone can only read these 5 files, result as only get partial data
-	// load files in directory
-	files, err := os.ReadDir(d.loc + "/" + CACHE_DIR + "/" + key)
-	if err != nil {
-		return nil, errors.New("Key not found in cache")
-	}
-
-	content := ""
-
-	for _, file := range files {
-		if !file.IsDir() {
-			value, err := os.ReadFile(d.loc + "/" + CACHE_DIR + "/" + key + "/" + file.Name())
-			if err != nil {
-				return nil, errors.New("Key not found in cache")
-			}
-
-			content += string(value)
-		}
-	}
-
-	d.logger.Debug("Cache hit", zap.String("key", key))
-	d.logger.Debug("Pulled key from disk", zap.String("key", key))
-
-	return []byte(content), nil
+	// TODO: finish load from disk
+	return nil, 0, ErrCacheNotFound
 }
 
 // TODO: why we need index here?
-func (d *Store) Set(key string, idx int, value []byte) error {
+func (d *Store) Set(reqPath string, ct string, cacheKey string, stateCode int, value []byte) error {
+	key := d.buildCacheKey(reqPath, ct, cacheKey)
+	d.logger.Debug("Cache Key", zap.String("Key", key))
+
 	key = strings.ReplaceAll(key, "/", "+")
 
 	memCache := d.getMemCache()
-	cacheItem, _ := memCache.LoadOrStore(key, &MemCacheItem{
-		content:   make(map[int]*string),
-		value:     "",
-		timestamp: time.Now().Unix(),
+	_, existed := memCache.LoadAndStore(key, &MemCacheItem{
+		stateCode:       stateCode,
+		contentEncoding: ct,
+		value:           value,
+		timestamp:       time.Now().Unix(),
 	})
 
 	d.logger.Debug("-----------------------------------")
-	d.logger.Debug("Setting key in cache", zap.String("key", key))
-	d.logger.Debug("Index", zap.Int("index", idx))
-	newValue := string(value)
-
-	// TODO: fix racing on cacheItem
-	if idx == 0 {
-		cacheItem.timestamp = time.Now().Unix()
-	}
-
-	// TODO: fix racing on cacheItem
-	cacheItem.value += newValue
+	d.logger.Debug("Setting key in cache", zap.String("key", key), zap.Bool("replace", existed))
 
 	// create page directory
-	os.MkdirAll(d.loc+"/"+CACHE_DIR+"/"+key, os.ModePerm)
-	err := os.WriteFile(d.loc+"/"+CACHE_DIR+"/"+key+"/"+strconv.Itoa(idx), value, os.ModePerm)
+	basePath := path.Join(d.loc, CACHE_DIR, key)
+	os.MkdirAll(basePath, os.ModePerm)
+	err := os.WriteFile(path.Join(basePath, "."+ct), value, os.ModePerm)
 
 	if err != nil {
 		d.logger.Error("Error writing to cache", zap.Error(err))
@@ -219,4 +196,12 @@ func (d *Store) List() map[string][]string {
 	}
 
 	return list
+}
+
+func (d *Store) buildCacheKey(reqPath string, contentEncoding string, cacheKey string) string {
+	// cacheKey := contentEncoding + "::" + reqPath
+	if len(cacheKey) == 0 {
+		return fmt.Sprintf("%v::%v", reqPath, contentEncoding)
+	}
+	return fmt.Sprintf("%v::%v::cacheKey", reqPath, contentEncoding, cacheKey)
 }

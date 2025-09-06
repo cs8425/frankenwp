@@ -228,6 +228,11 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 		}
 	}
 
+	// only GET Method can cache
+	if r.Method != "GET" {
+		return next.ServeHTTP(w, r)
+	}
+
 	// bypass if is logged in. We don't want to cache admin bars
 	cookies := r.Header.Get("Cookie")
 	if strings.Contains(cookies, "wordpress_logged_in") {
@@ -250,8 +255,10 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 		encoding = "none"
 	}
 
-	cacheKey := encoding + "::" + r.URL.Path
-	cacheItem, err := db.Get(cacheKey)
+	// TODO: custom cacheKey by query, header ...
+	cacheKey := ""
+	cacheKey = c.Store.buildCacheKey(r.URL.Path, encoding, cacheKey)
+	cacheData, stateCode, err := db.Get(cacheKey)
 
 	if err != nil {
 		c.logger.Debug("wp cache - error - "+cacheKey, zap.Error(err))
@@ -264,11 +271,13 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 		w.Header().Set("Server", "Caddy")
 		w.Header().Set("Vary", "Accept-Encoding")
 		w.Header().Set("Content-Encoding", encoding)
-		w.Write(cacheItem)
+		w.WriteHeader(stateCode)
+		w.Write(cacheData)
 
 		return nil
 	}
 
-	nw := NewCustomWriter(w, r, db, c.logger, r.URL.Path, c.CacheResponseCodes, c.CacheHeaderName)
+	nw := NewCustomWriter(w, r, db, c.logger, c.CacheResponseCodes, c.CacheHeaderName)
+	defer nw.Close()
 	return next.ServeHTTP(nw, r)
 }
