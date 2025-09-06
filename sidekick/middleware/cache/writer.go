@@ -3,8 +3,8 @@ package cache
 import (
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
-	"sync"
 	"sync/atomic"
 
 	"go.uber.org/zap"
@@ -52,10 +52,6 @@ type CustomWriter struct {
 	// assume response data not too large
 	// TODO: buffer pool
 	buf []byte
-
-	mx              sync.Mutex
-	contentEncoding string
-	header          [][]string
 }
 
 func (r *CustomWriter) Unwrap() http.ResponseWriter {
@@ -64,10 +60,14 @@ func (r *CustomWriter) Unwrap() http.ResponseWriter {
 
 // set cache on response end
 func (r *CustomWriter) Close() error {
-	r.mx.Lock()
-	ce := r.contentEncoding
-	r.mx.Unlock()
-	r.Store.Set(r.origUrl.Path, ce, "", int(atomic.LoadInt32(&r.status)), r.buf)
+	if atomic.LoadInt32(&r.needCache) == 1 {
+		hdr := r.ResponseWriter.Header()
+		meta := NewCacheMeta(int(atomic.LoadInt32(&r.status)), hdr)
+		if meta == nil {
+			return nil
+		}
+		r.Store.Set(r.origUrl.Path, "", meta, r.buf)
+	}
 	return nil
 }
 
@@ -81,11 +81,6 @@ func (r *CustomWriter) WriteHeader(status int) {
 
 	r.Logger.Debug("Writing customwriter response", zap.String("path", r.origUrl.Path))
 	bypass := true
-
-	// TODO: more check on response for bypass
-	// if bypass {
-	// 	bypass = strings.HasSuffix(r.origUrl.Path, ".php")
-	// }
 
 	// check if the response code is in the cache response codes
 	if bypass {
@@ -114,6 +109,15 @@ func (r *CustomWriter) WriteHeader(status int) {
 	// TODO: more bypass rule by config
 	hdr := r.Header()
 
+	// check if response should not cached
+	for h := range hdr {
+		ok := slices.Contains(hdrResNotCacheList, h)
+		if ok {
+			bypass = true
+			break
+		}
+	}
+
 	cacheState := "BYPASS"
 	if bypass {
 		hdr.Set(r.cacheHeaderName, cacheState)
@@ -123,16 +127,6 @@ func (r *CustomWriter) WriteHeader(status int) {
 
 	atomic.StoreInt32(&r.needCache, 1)
 	cacheState = "MISS"
-
-	// save response data
-	// content encoding
-	ct := hdr.Get("Content-Encoding")
-	if ct == "" {
-		ct = "none"
-	}
-	r.mx.Lock()
-	r.contentEncoding = ct
-	r.mx.Unlock()
 
 	// TODO: prevent multiple CustomWriter cache when concurrent request same page (same cacheKey)
 
@@ -147,6 +141,7 @@ func (r *CustomWriter) Write(b []byte) (int, error) {
 		r.WriteHeader(200)
 	}
 
+	// save response data
 	if atomic.LoadInt32(&r.needCache) == 1 {
 		// assume Write() not called concurrently
 		r.buf = append(r.buf, b...)

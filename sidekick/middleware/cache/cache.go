@@ -313,26 +313,35 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 
 	// TODO: if only have uncompressed data, we should try to cached a compressed version
 	var cacheData []byte
-	var stateCode int
+	var cacheMeta *CacheMeta
 	var err error
 	ce := ""
 	for _, re := range requestEncoding {
 		ce = strings.TrimSpace(re)
-		cacheData, stateCode, err = db.Get(cacheKey, ce)
+		cacheData, cacheMeta, err = db.Get(cacheKey, ce)
 		if err == nil {
 			break
 		}
 	}
 	if err == nil {
-		// TODO: set original status code
+		// TODO: implement 304 Not Modified reponse for
+		// ETag (If-Match, If-None-Match)
+		// Last-Modified (If-Modified-Since, If-Unmodified-Since)
+
 		hdr.Set(c.CacheHeaderName, "HIT")
-		hdr.Set("Content-Type", "text/html; charset=UTF-8")
-		hdr.Set("Server", "Caddy")
 		hdr.Set("Vary", "Accept-Encoding")
 		if ce != "none" {
 			hdr.Set("Content-Encoding", ce)
 		}
-		w.WriteHeader(stateCode)
+		// hdr.Set("Content-Type", "text/html; charset=UTF-8")
+		// hdr.Set("Server", "Caddy")
+		for _, kv := range cacheMeta.Header {
+			if len(kv) != 2 {
+				continue
+			}
+			hdr.Set(kv[0], kv[1])
+		}
+		w.WriteHeader(cacheMeta.StateCode)
 		w.Write(cacheData)
 
 		return nil

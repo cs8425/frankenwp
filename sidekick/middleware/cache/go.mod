@@ -1,6 +1,6 @@
 module github.com/stephenmiracle/wpcache
 
-go 1.22.1
+go 1.25.0
 
 require (
 	github.com/caddyserver/caddy/v2 v2.7.6

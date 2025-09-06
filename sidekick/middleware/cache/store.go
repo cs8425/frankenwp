@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -36,12 +35,8 @@ type Store struct {
 }
 
 type MemCacheItem struct {
-	timestamp int64
-
-	stateCode       int
-	contentEncoding string
-	header          [][]string
-	value           []byte
+	*CacheMeta
+	value []byte
 }
 
 const (
@@ -49,7 +44,7 @@ const (
 )
 
 func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
-	os.MkdirAll(loc+"/"+CACHE_DIR, os.ModePerm)
+	os.MkdirAll(loc+"/"+CACHE_DIR, 0o755)
 	memCache := xsync.NewMapOf[*MemCacheItem]()
 	d := &Store{
 		loc:    loc,
@@ -101,7 +96,7 @@ func (d *Store) getMemCache() *xsync.MapOf[string, *MemCacheItem] {
 	return memCache
 }
 
-func (d *Store) Get(key string, ce string) ([]byte, int, error) {
+func (d *Store) Get(key string, ce string) ([]byte, *CacheMeta, error) {
 	key = strings.ReplaceAll(key, "/", "+")
 	d.logger.Debug("Getting key from cache", zap.String("key", key))
 
@@ -110,49 +105,47 @@ func (d *Store) Get(key string, ce string) ([]byte, int, error) {
 	if ok {
 		d.logger.Debug("Pulled key from memory", zap.String("key", key))
 
-		if time.Now().Unix()-cacheItem.timestamp > int64(d.ttl) {
+		if time.Now().Unix()-cacheItem.Timestamp > int64(d.ttl) {
 			d.logger.Debug("Cache expired", zap.String("key", key))
 			// TODO: fix racing when purge running and setting new value with same key
 			go d.Purge(key)
-			return nil, 0, ErrCacheExpired
+			return nil, nil, ErrCacheExpired
 		}
 
 		d.logger.Debug("Cache hit", zap.String("key", key))
-		return cacheItem.value, cacheItem.stateCode, nil
+		return cacheItem.value, cacheItem.CacheMeta, nil
 	}
 
 	// load from disk
+	cacheMeta := &CacheMeta{}
+	err := cacheMeta.LoadFromFile(path.Join(d.loc, CACHE_DIR, key, ".meta"))
+	if err != nil {
+		return nil, nil, ErrCacheNotFound
+	}
 	value, err := os.ReadFile(path.Join(d.loc, CACHE_DIR, key, "."+ce))
 	if err != nil {
-		return value, 0, ErrCacheNotFound
+		return value, nil, ErrCacheNotFound
 	}
 
 	d.logger.Debug("Cache hit", zap.String("key", key))
 	d.logger.Debug("Pulled key from disk", zap.String("key", key))
 
 	// TODO: return original status code
-	return value, 200, nil
+	return value, cacheMeta, nil
 
 	// TODO: load back to memory
 }
 
-func (d *Store) Set(reqPath string, ce string, cacheKey string, stateCode int, value []byte) error {
-	// skip if Content-Encoding not in list
-	if !slices.Contains(CachedContentEncoding, ce) {
-		return nil
-	}
-
+func (d *Store) Set(reqPath string, cacheKey string, meta *CacheMeta, value []byte) error {
 	key := d.buildCacheKey(reqPath, cacheKey)
 	d.logger.Debug("Cache Key", zap.String("Key", key))
 
 	key = strings.ReplaceAll(key, "/", "+")
-
+	ce := meta.contentEncoding
 	memCache := d.getMemCache()
 	_, existed := memCache.LoadAndStore(key+"::"+ce, &MemCacheItem{
-		stateCode:       stateCode,
-		contentEncoding: ce,
-		value:           value,
-		timestamp:       time.Now().Unix(),
+		CacheMeta: meta,
+		value:     value,
 	})
 
 	d.logger.Debug("-----------------------------------")
@@ -160,13 +153,15 @@ func (d *Store) Set(reqPath string, ce string, cacheKey string, stateCode int, v
 
 	// create page directory
 	basePath := path.Join(d.loc, CACHE_DIR, key)
-	os.MkdirAll(basePath, os.ModePerm)
-	err := os.WriteFile(path.Join(basePath, "."+ce), value, os.ModePerm)
-
+	os.MkdirAll(basePath, 0o755)
+	err := os.WriteFile(path.Join(basePath, "."+ce), value, 0o644)
 	if err != nil {
-		d.logger.Error("Error writing to cache", zap.Error(err))
+		d.logger.Error("Error writing data to cache", zap.Error(err))
 	}
-
+	err = meta.WriteToFile(path.Join(basePath, ".meta"))
+	if err != nil {
+		d.logger.Error("Error writing meta to cache", zap.Error(err))
+	}
 	return nil
 }
 
