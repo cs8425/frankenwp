@@ -278,7 +278,9 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 	// default: ".*(\\.[^.]+)$", bypass all media, images, css, js, etc
 	if !bypass && c.pathRx != nil {
 		bypass = c.pathRx.MatchString(r.URL.Path)
-		c.logger.Debug("wp cache - bypass regex", zap.String("regex", c.BypassPathRegex))
+		if bypass {
+			c.logger.Debug("wp cache - bypass regex", zap.String("regex", c.BypassPathRegex))
+		}
 	}
 
 	if !bypass && c.BypassHome && r.URL.Path == "/" {

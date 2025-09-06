@@ -58,7 +58,7 @@ func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
 	}
 	d.memCache.Store(memCache)
 
-	// // Load cache from disk
+	// Load cache from disk
 	/*files, err := os.ReadDir(loc + "/" + CACHE_DIR)
 	if err == nil {
 		for _, file := range files {
@@ -118,11 +118,22 @@ func (d *Store) Get(key string, ce string) ([]byte, int, error) {
 		}
 
 		d.logger.Debug("Cache hit", zap.String("key", key))
-		return []byte(cacheItem.value), cacheItem.stateCode, nil
+		return cacheItem.value, cacheItem.stateCode, nil
 	}
 
-	// TODO: finish load from disk
-	return nil, 0, ErrCacheNotFound
+	// load from disk
+	value, err := os.ReadFile(path.Join(d.loc, CACHE_DIR, key, "."+ce))
+	if err != nil {
+		return value, 0, ErrCacheNotFound
+	}
+
+	d.logger.Debug("Cache hit", zap.String("key", key))
+	d.logger.Debug("Pulled key from disk", zap.String("key", key))
+
+	// TODO: return original status code
+	return value, 200, nil
+
+	// TODO: load back to memory
 }
 
 func (d *Store) Set(reqPath string, ce string, cacheKey string, stateCode int, value []byte) error {
@@ -188,19 +199,22 @@ func (d *Store) Purge(key string) {
 			continue
 		}
 		fp := path.Join(basePath, name)
-		// err := os.RemoveAll(fp)
-		for _, name := range CachedContentEncoding {
-			err := os.Remove(path.Join(fp, "."+name))
-			if err != nil {
-				d.logger.Error("Error Removing key from disk cache", zap.String("fp", fp), zap.Error(err))
-			}
+		err := os.RemoveAll(fp)
+		if err != nil {
+			d.logger.Error("Error Removing key from disk cache", zap.String("fp", fp), zap.Error(err))
 		}
+		// for _, name := range CachedContentEncoding {
+		// 	err := os.Remove(path.Join(fp, "."+name))
+		// 	if err != nil {
+		// 		d.logger.Error("Error Removing key from disk cache", zap.String("fp", fp), zap.Error(err))
+		// 	}
+		// }
 	}
 }
 
 func (d *Store) Flush() error {
 	d.memCache.Store(xsync.NewMapOf[*MemCacheItem]())
-
+	// return nil
 	basePath := path.Join(d.loc, CACHE_DIR)
 	files, err := os.ReadDir(basePath)
 	if err != nil {
