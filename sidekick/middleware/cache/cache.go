@@ -309,6 +309,9 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 	cacheKey = c.Store.buildCacheKey(r.URL.Path, cacheKey)
 
 	requestEncoding := strings.Split(strings.Join(reqHdr["Accept-Encoding"], ""), ",")
+	if len(requestEncoding) == 1 && len(requestEncoding[0]) == 0 {
+		requestEncoding = nil
+	}
 	requestEncoding = append(requestEncoding, "none")
 
 	// TODO: if only have uncompressed data, we should try to cached a compressed version

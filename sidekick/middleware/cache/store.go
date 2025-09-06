@@ -98,42 +98,60 @@ func (d *Store) getMemCache() *xsync.MapOf[string, *MemCacheItem] {
 
 func (d *Store) Get(key string, ce string) ([]byte, *CacheMeta, error) {
 	key = strings.ReplaceAll(key, "/", "+")
-	d.logger.Debug("Getting key from cache", zap.String("key", key))
+	d.logger.Debug("Getting key from cache", zap.String("key", key), zap.String("ce", ce))
 
 	memCache := d.getMemCache()
-	cacheItem, ok := memCache.Load(key + "::" + ce)
-	if ok {
-		d.logger.Debug("Pulled key from memory", zap.String("key", key))
 
-		if time.Now().Unix()-cacheItem.Timestamp > int64(d.ttl) {
-			d.logger.Debug("Cache expired", zap.String("key", key))
-			// TODO: fix racing when purge running and setting new value with same key
-			go d.Purge(key)
-			return nil, nil, ErrCacheExpired
+	// load from memory or try load from disk
+	var retErr error
+	var cacheItem *MemCacheItem
+	isDisk := false
+	cacheKey := key + "::" + ce
+	for cacheItem == nil && retErr == nil {
+		// not sure why compute function may get called more than once...?
+		cacheItem, _ = memCache.LoadOrCompute(cacheKey, func() *MemCacheItem {
+			cacheMeta := &CacheMeta{}
+			err := cacheMeta.LoadFromFile(path.Join(d.loc, CACHE_DIR, key, ".meta"))
+			if err != nil {
+				retErr = err
+				return nil
+			}
+			value, err := os.ReadFile(path.Join(d.loc, CACHE_DIR, key, "."+ce))
+			if err != nil {
+				retErr = err
+				return nil
+			}
+
+			isDisk = true
+			return &MemCacheItem{
+				CacheMeta: cacheMeta,
+				value:     value,
+			}
+		})
+		if cacheItem == nil {
+			memCache.Delete(cacheKey)
 		}
-
-		d.logger.Debug("Cache hit", zap.String("key", key))
-		return cacheItem.value, cacheItem.CacheMeta, nil
 	}
-
-	// load from disk
-	cacheMeta := &CacheMeta{}
-	err := cacheMeta.LoadFromFile(path.Join(d.loc, CACHE_DIR, key, ".meta"))
-	if err != nil {
+	if retErr != nil {
+		d.logger.Debug("Error pulled key from disk", zap.String("key", key), zap.String("ce", ce), zap.Error(retErr))
 		return nil, nil, ErrCacheNotFound
 	}
-	value, err := os.ReadFile(path.Join(d.loc, CACHE_DIR, key, "."+ce))
-	if err != nil {
-		return value, nil, ErrCacheNotFound
+
+	if isDisk {
+		d.logger.Debug("Pulled key from disk", zap.String("key", key), zap.String("ce", ce))
+	} else {
+		d.logger.Debug("Pulled key from memory", zap.String("key", key), zap.String("ce", ce))
 	}
 
-	d.logger.Debug("Cache hit", zap.String("key", key))
-	d.logger.Debug("Pulled key from disk", zap.String("key", key))
+	if time.Now().Unix()-cacheItem.Timestamp > int64(d.ttl) {
+		d.logger.Debug("Cache expired", zap.String("key", key))
+		// TODO: fix racing when purge running and setting new value with same key
+		go d.Purge(key)
+		return nil, nil, ErrCacheExpired
+	}
 
-	// TODO: return original status code
-	return value, cacheMeta, nil
-
-	// TODO: load back to memory
+	d.logger.Debug("Cache hit", zap.String("key", key), zap.String("ce", ce))
+	return cacheItem.value, cacheItem.CacheMeta, nil
 }
 
 func (d *Store) Set(reqPath string, cacheKey string, meta *CacheMeta, value []byte) error {
