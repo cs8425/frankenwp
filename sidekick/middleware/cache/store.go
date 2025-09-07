@@ -160,11 +160,13 @@ func (d *Store) Get(key string, ce string) ([]byte, *CacheMeta, error) {
 		d.logger.Debug("Pulled key from memory", zap.String("key", key), zap.String("ce", ce))
 	}
 
-	if time.Now().Unix()-cacheItem.Timestamp > int64(d.ttl) {
-		d.logger.Debug("Cache expired", zap.String("key", key))
-		// TODO: fix racing when purge running and setting new value with same key
-		go d.Purge(key)
-		return nil, nil, ErrCacheExpired
+	if d.ttl > 0 {
+		if time.Now().Unix() > cacheItem.Timestamp+int64(d.ttl) {
+			d.logger.Debug("Cache expired", zap.String("key", key))
+			// TODO: fix racing when purge running and setting new value with same key
+			go d.Purge(key)
+			return nil, nil, ErrCacheExpired
+		}
 	}
 
 	d.logger.Debug("Cache hit", zap.String("key", key), zap.String("ce", ce))

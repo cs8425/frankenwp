@@ -43,7 +43,7 @@ An enterprise-grade WordPress image built for scale. It uses the new FrankenPHP 
 - `BYPASS_HOME`: Whether to skip caching home. Defaults to false.
 - `PURGE_KEY`: Create a purge key that must be validated on purge requests. Helps to prevent malicious intent. No default.
 - `PURGE_PATH`: Create a custom route for the cache purge API path. Defaults to /\_\_cache/purge.
-- `TTL`: Defines how long objects should be stored in cache. Defaults to 6000. Unit in seconds.
+- `TTL`: Defines how long objects should be stored in cache. Defaults to 6000. Unit in seconds. 0 or negative value means cache forever.
 - `CACHE_HEADER_NAME`: Change hader name for the cache state check. Defaults to X-WPEverywhere-Cache.
 - `CACHE_MEM_ITEM_SIZE`: if a response size larger then this value, it will not cache and just bypass. Unit in byte. Defaults to `4194304` (4 MB). this will affect temporary momory usage when try to caching response.
 - `CACHE_MEM_ALL_SIZE`: limit how much memory should use for in-memory cache. Unit in byte. Defaults to `134217728` (128 MB). negative value means disable limit.
