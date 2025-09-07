@@ -1,7 +1,9 @@
 package cache
 
 import (
+	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -30,6 +32,9 @@ type Cache struct {
 	CacheResponseCodes []string
 	TTL                int
 	Store              *Store
+
+	MemoryItemCacheMaxSize int
+	MemoryAllCacheMaxSize  int
 
 	pathRx *regexp.Regexp
 }
@@ -118,6 +123,16 @@ func (c *Cache) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 		case "cache_header_name":
 			c.CacheHeaderName = value
+
+		case "memory_single_item_max_size":
+			if n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil {
+				c.MemoryItemCacheMaxSize = int(n)
+			}
+
+		case "memory_all_item_max_size":
+			if n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil {
+				c.MemoryAllCacheMaxSize = int(n)
+			}
 		}
 	}
 
@@ -207,6 +222,22 @@ func (c *Cache) Provision(ctx caddy.Context) error {
 		}
 	}
 
+	// TODO: let 0 == disable memory but cache to disk?
+	if c.MemoryItemCacheMaxSize == 0 {
+		c.MemoryItemCacheMaxSize = 4 * 1024 * 1024 // 4MB
+	}
+	if c.MemoryItemCacheMaxSize < 0 { // < 0 == unlimited
+		c.MemoryItemCacheMaxSize = math.MaxInt
+	}
+
+	// TODO: let 0 == disable memory but cache to disk?
+	if c.MemoryAllCacheMaxSize == 0 {
+		c.MemoryAllCacheMaxSize = 128 * 1024 * 1024 // 128MB
+	}
+	if c.MemoryAllCacheMaxSize < 0 { // < 0 == unlimited
+		c.MemoryAllCacheMaxSize = math.MaxInt
+	}
+
 	c.Store = NewStore(c.Loc, c.TTL, c.logger)
 
 	return nil
@@ -222,7 +253,7 @@ func (Cache) CaddyModule() caddy.ModuleInfo {
 }
 
 // ServeHTTP implements the caddy.Handler interface.
-func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+func (c *Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	bypass := false
 	c.logger.Debug("HTTP Version", zap.String("Version", r.Proto))
 
@@ -327,6 +358,9 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 		}
 	}
 	if err == nil {
+		// TODO: some limit prevent self-DoS
+		go c.doCache(r, next)
+
 		// TODO: implement 304 Not Modified reponse for
 		// ETag (If-Match, If-None-Match)
 		// Last-Modified (If-Modified-Since, If-Unmodified-Since)
@@ -351,7 +385,41 @@ func (c Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.
 	}
 	c.logger.Debug("wp cache - error - "+cacheKey, zap.Error(err))
 
-	nw := NewCustomWriter(w, r, db, c.logger, c.CacheResponseCodes, c.CacheHeaderName)
+	nw := NewCustomWriter(w, r, db, c.logger, c)
 	defer nw.Close()
 	return next.ServeHTTP(nw, r)
+}
+
+func (c *Cache) doCache(r0 *http.Request, next caddyhttp.Handler) {
+	r := r0.Clone(context.Background())
+	repl := caddy.NewReplacer()
+	r = caddyhttp.PrepareRequest(r, repl, nil, nil)
+	c.logger.Debug("wp cache - preload - ", zap.String("path", r.URL.Path))
+	db := c.Store
+	w := &NopResponseWriter{}
+	nw := NewCustomWriter(w, r, db, c.logger, c)
+	defer nw.Close()
+	next.ServeHTTP(nw, r)
+}
+
+// Interface guards
+var (
+	_ caddy.Provisioner           = (*Cache)(nil)
+	_ caddyhttp.MiddlewareHandler = (*Cache)(nil)
+	_ caddyfile.Unmarshaler       = (*Cache)(nil)
+	// _ caddy.Validator             = (*Cache)(nil)
+
+	_ http.ResponseWriter = (*NopResponseWriter)(nil)
+)
+
+type NopResponseWriter map[string][]string
+
+func (nop *NopResponseWriter) WriteHeader(statusCode int) {}
+
+func (nop *NopResponseWriter) Write(buf []byte) (int, error) {
+	return len(buf), nil
+}
+
+func (nop *NopResponseWriter) Header() http.Header {
+	return http.Header(*nop)
 }

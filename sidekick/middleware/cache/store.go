@@ -156,7 +156,7 @@ func (d *Store) Get(key string, ce string) ([]byte, *CacheMeta, error) {
 
 func (d *Store) Set(reqPath string, cacheKey string, meta *CacheMeta, value []byte) error {
 	key := d.buildCacheKey(reqPath, cacheKey)
-	d.logger.Debug("Cache Key", zap.String("Key", key))
+	d.logger.Debug("Cache Key", zap.String("Key", key), zap.String("ce", meta.contentEncoding))
 
 	key = strings.ReplaceAll(key, "/", "+")
 	ce := meta.contentEncoding
@@ -167,7 +167,7 @@ func (d *Store) Set(reqPath string, cacheKey string, meta *CacheMeta, value []by
 	})
 
 	d.logger.Debug("-----------------------------------")
-	d.logger.Debug("Setting key in cache", zap.String("key", key), zap.Bool("replace", existed))
+	d.logger.Debug("Setting key in cache", zap.String("key", key), zap.String("ce", meta.contentEncoding), zap.Bool("replace", existed))
 
 	// create page directory
 	basePath := path.Join(d.loc, CACHE_DIR, key)

@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func NewCustomWriter(rw http.ResponseWriter, r *http.Request, db *Store, logger *zap.Logger, codes []string, cacheHeaderName string) *CustomWriter {
+func NewCustomWriter(rw http.ResponseWriter, r *http.Request, db *Store, logger *zap.Logger, c *Cache) *CustomWriter {
 	nw := CustomWriter{
 		ResponseWriter: rw,
 		Request:        r,
@@ -21,8 +21,9 @@ func NewCustomWriter(rw http.ResponseWriter, r *http.Request, db *Store, logger 
 		// origHeader: r.Header.Clone(),
 		origUrl: *r.URL,
 
-		cacheResponseCodes: codes,
-		cacheHeaderName:    cacheHeaderName,
+		cacheMaxSize:       c.MemoryItemCacheMaxSize,
+		cacheResponseCodes: c.CacheResponseCodes,
+		cacheHeaderName:    c.CacheHeaderName,
 		status:             -1,
 	}
 	return &nw
@@ -38,6 +39,7 @@ type CustomWriter struct {
 	*zap.Logger
 	cacheResponseCodes []string
 	cacheHeaderName    string
+	cacheMaxSize       int
 
 	// origHeader http.Header
 	origUrl url.URL
@@ -143,8 +145,18 @@ func (r *CustomWriter) Write(b []byte) (int, error) {
 
 	// save response data
 	if atomic.LoadInt32(&r.needCache) == 1 {
-		// assume Write() not called concurrently
-		r.buf = append(r.buf, b...)
+		sz := len(r.buf) + len(b)
+		if sz <= r.cacheMaxSize {
+			// assume Write() not called concurrently
+			r.buf = append(r.buf, b...)
+		} else {
+			// TODO: rewrite to temporary file on disk?
+			// too large, skip cache in memory
+			atomic.StoreInt32(&r.needCache, 0)
+			r.buf = nil
+
+			r.Logger.Debug("Bypass caching because of data size", zap.Int("sz", sz), zap.Int("limit", r.cacheMaxSize))
+		}
 	}
 
 	return r.ResponseWriter.Write(b)
