@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/puzpuzpuz/xsync"
 	"go.uber.org/zap"
 )
 
@@ -26,10 +25,10 @@ var (
 )
 
 type Store struct {
-	loc      string
-	ttl      int
-	logger   *zap.Logger
-	memCach0 atomic.Value // *xsync.MapOf[string, *MemCacheItem]
+	loc    string
+	ttl    int
+	logger *zap.Logger
+	// memCach0 atomic.Value // *xsync.MapOf[string, *MemCacheItem]
 
 	memMaxSize  int
 	memMaxCount int
@@ -248,7 +247,7 @@ func (d *Store) Purge(key string) {
 }
 
 func (d *Store) Flush() error {
-	d.memCache.Store(xsync.NewMapOf[*MemCacheItem]())
+	d.memCache.Store(NewLRUCache[string, *MemCacheItem](d.memMaxCount, d.memMaxSize))
 	// return nil
 	basePath := path.Join(d.loc, CACHE_DIR)
 	files, err := os.ReadDir(basePath)
@@ -296,6 +295,13 @@ func (d *Store) List() map[string][]string {
 				list["disk"] = append(list["disk"], dirName+"::"+name)
 			}
 		}
+	}
+
+	list["debug"] = []string{
+		fmt.Sprintf("max_size=%v", d.memMaxSize),
+		fmt.Sprintf("max_count=%v", d.memMaxCount),
+		fmt.Sprintf("size=%v", memCache.Cost()),
+		fmt.Sprintf("coun=%v", memCache.Size()),
 	}
 
 	return list

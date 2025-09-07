@@ -366,7 +366,9 @@ func (c *Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp
 	}
 	if err == nil {
 		// TODO: some limit prevent self-DoS
-		go c.doCache(r, next)
+		if ce == "none" && requestEncoding[0] != "none" {
+			go c.doCache(r, next)
+		}
 
 		// TODO: implement 304 Not Modified reponse for
 		// ETag (If-Match, If-None-Match)
@@ -377,8 +379,7 @@ func (c *Cache) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp
 		if ce != "none" {
 			hdr.Set("Content-Encoding", ce)
 		}
-		// hdr.Set("Content-Type", "text/html; charset=UTF-8")
-		// hdr.Set("Server", "Caddy")
+		// set header back
 		for _, kv := range cacheMeta.Header {
 			if len(kv) != 2 {
 				continue

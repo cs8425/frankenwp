@@ -2,7 +2,6 @@ package cache
 
 import (
 	"container/list"
-	"weak"
 
 	"github.com/puzpuzpuz/xsync"
 )
@@ -22,8 +21,9 @@ type LRUCache[K comparable, V any] struct {
 
 type entry[K comparable, V any] struct {
 	key   K
-	value weak.Pointer[V] // Store weak pointer to the actual value
+	value *V
 	cost  int
+	// value weak.Pointer[V] // Store weak pointer to the actual value
 }
 
 func NewLRUCache[K comparable, V any](capacityCount int, capacityCost int) *LRUCache[K, V] {
@@ -39,6 +39,12 @@ func (c *LRUCache[K, V]) Size() int {
 	tk := c.mu.RLock()
 	defer c.mu.RUnlock(tk)
 	return len(c.cache)
+}
+
+func (c *LRUCache[K, V]) Cost() int {
+	tk := c.mu.RLock()
+	defer c.mu.RUnlock(tk)
+	return int(c.currentCost)
 }
 
 func (c *LRUCache[K, V]) Get(key K) (*V, bool) {
@@ -59,15 +65,16 @@ func (c *LRUCache[K, V]) get(key K, touch bool) (*V, bool) {
 			c.ll.MoveToFront(elem)
 		}
 		valEntry := elem.Value.(*entry[K, V])
+		return valEntry.value, true
 
 		// Attempt to get the strong pointer from the weak pointer
-		if strongVal := valEntry.value.Value(); strongVal != nil {
-			return strongVal, true
-		} else {
-			// Object has been garbage collected, remove from cache
-			c.removeElement(elem)
-			return nil, false
-		}
+		// if strongVal := valEntry.value.Value(); strongVal != nil {
+		// 	return strongVal, true
+		// } else {
+		// 	// Object has been garbage collected, remove from cache
+		// 	c.removeElement(elem)
+		// 	return nil, false
+		// }
 	}
 	return nil, false
 }
@@ -82,7 +89,7 @@ func (c *LRUCache[K, V]) put(key K, value V, cost int) bool {
 	if elem, ok := c.cache[key]; ok {
 		c.ll.MoveToFront(elem)
 		valEntry := elem.Value.(*entry[K, V])
-		valEntry.value = weak.Make(&value) // Update weak pointer
+		valEntry.value = &value // weak.Make(&value) // Update weak pointer
 
 		// update cost
 		c.currentCost = c.currentCost - int64(valEntry.cost) + int64(cost)
@@ -96,7 +103,7 @@ func (c *LRUCache[K, V]) put(key K, value V, cost int) bool {
 
 	newEntry := &entry[K, V]{
 		key:   key,
-		value: weak.Make(&value),
+		value: &value, // weak.Make(&value),
 		cost:  cost,
 	}
 	elem := c.ll.PushFront(newEntry)
