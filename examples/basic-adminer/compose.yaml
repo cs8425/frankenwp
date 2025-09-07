@@ -16,7 +16,7 @@ services:
       WORDPRESS_DEBUG: ${WP_DEBUG:-0}
       WORDPRESS_TABLE_PREFIX: ${DB_TABLE_PREFIX:-wp_}
       CACHE_LOC: ${CACHE_LOC:-/var/www/html/wp-content/cache}
-      TTL: ${TTL:-80000}
+      TTL: ${TTL:-0}
       PURGE_PATH: ${PURGE_PATH:-/__cache/purge}
       PURGE_KEY: ${PURGE_KEY:-}
       BYPASS_HOME: ${BYPASS_HOME:-false}
