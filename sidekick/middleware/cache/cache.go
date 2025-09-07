@@ -35,6 +35,7 @@ type Cache struct {
 
 	MemoryItemCacheMaxSize int
 	MemoryAllCacheMaxSize  int
+	MemoryCacheMaxCount    int
 
 	pathRx *regexp.Regexp
 }
@@ -133,6 +134,10 @@ func (c *Cache) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil {
 				c.MemoryAllCacheMaxSize = int(n)
 			}
+		case "memory_all_item_max_count":
+			if n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil {
+				c.MemoryCacheMaxCount = int(n)
+			}
 		}
 	}
 
@@ -230,15 +235,17 @@ func (c *Cache) Provision(ctx caddy.Context) error {
 		c.MemoryItemCacheMaxSize = math.MaxInt
 	}
 
-	// TODO: let 0 == disable memory but cache to disk?
+	// TODO: let < 0 disable memory but cache to disk?
 	if c.MemoryAllCacheMaxSize == 0 {
-		c.MemoryAllCacheMaxSize = 128 * 1024 * 1024 // 128MB
-	}
-	if c.MemoryAllCacheMaxSize < 0 { // < 0 == unlimited
-		c.MemoryAllCacheMaxSize = math.MaxInt
+		c.MemoryAllCacheMaxSize = 128 * 1024 * 1024 // 128MB as default should be enough?
 	}
 
-	c.Store = NewStore(c.Loc, c.TTL, c.logger)
+	// TODO: let < 0 disable memory but cache to disk?
+	if c.MemoryCacheMaxCount == 0 {
+		c.MemoryCacheMaxCount = 32 * 1024 // 32K item as default should be enough?
+	}
+
+	c.Store = NewStore(c.Loc, c.TTL, c.MemoryAllCacheMaxSize, c.MemoryCacheMaxCount, c.logger)
 
 	return nil
 }

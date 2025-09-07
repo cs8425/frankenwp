@@ -45,15 +45,18 @@ const (
 	CACHE_DIR = "sidekick-cache"
 )
 
-func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
+func NewStore(loc string, ttl int, memMaxSize int, memMaxCount int, logger *zap.Logger) *Store {
 	os.MkdirAll(loc+"/"+CACHE_DIR, 0o755)
 	// memCache := xsync.NewMapOf[*MemCacheItem]()
-	memCache := NewLRUCache[string, *MemCacheItem](2) // 128*1024*1204 128MB
 	d := &Store{
 		loc:    loc,
 		ttl:    ttl,
 		logger: logger,
+
+		memMaxSize:  memMaxSize,
+		memMaxCount: memMaxCount,
 	}
+	memCache := NewLRUCache[string, *MemCacheItem](memMaxCount, memMaxSize)
 	d.memCache.Store(memCache)
 
 	// Load cache from disk
@@ -120,24 +123,28 @@ func (d *Store) Get(key string, ce string) ([]byte, *CacheMeta, error) {
 	cacheKey := key + "::" + ce
 	for cacheItem == nil && retErr == nil {
 		// not sure why compute function may get called more than once...?
-		cacheItem, _ = memCache.LoadOrCompute(cacheKey, func() *MemCacheItem {
+		cacheItem, _ = memCache.LoadOrCompute(cacheKey, func() (*MemCacheItem, int, bool) {
+			// test for disable load from disk
+			// retErr = ErrCacheNotFound
+			// return nil, 0, false
+
 			cacheMeta := &CacheMeta{}
 			err := cacheMeta.LoadFromFile(path.Join(d.loc, CACHE_DIR, key, ".meta"))
 			if err != nil {
 				retErr = err
-				return nil
+				return nil, 0, false
 			}
 			value, err := os.ReadFile(path.Join(d.loc, CACHE_DIR, key, "."+ce))
 			if err != nil {
 				retErr = err
-				return nil
+				return nil, 0, false
 			}
 
 			isDisk = true
 			return &MemCacheItem{
 				CacheMeta: cacheMeta,
 				value:     value,
-			}
+			}, len(value), true // TODO: add header size
 		})
 		if cacheItem == nil {
 			memCache.Delete(cacheKey)
@@ -179,7 +186,7 @@ func (d *Store) Set(reqPath string, cacheKey string, meta *CacheMeta, value []by
 	existed := memCache.Put(key+"::"+ce, &MemCacheItem{
 		CacheMeta: meta,
 		value:     value,
-	})
+	}, len(value)) // TODO: add header size
 
 	d.logger.Debug("-----------------------------------")
 	d.logger.Debug("Setting key in cache", zap.String("key", key), zap.String("ce", meta.contentEncoding), zap.Bool("replace", existed))
