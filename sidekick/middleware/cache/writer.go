@@ -21,7 +21,7 @@ func NewCustomWriter(rw http.ResponseWriter, r *http.Request, db *Store, logger 
 		// origHeader: r.Header.Clone(),
 		origUrl: *r.URL,
 
-		cacheMaxSize:       c.MemoryItemCacheMaxSize,
+		cacheMaxSize:       c.MemoryItemMaxSize,
 		cacheResponseCodes: c.CacheResponseCodes,
 		cacheHeaderName:    c.CacheHeaderName,
 		status:             -1,

@@ -33,9 +33,9 @@ type Cache struct {
 	TTL                int
 	Store              *Store
 
-	MemoryItemCacheMaxSize int
-	MemoryAllCacheMaxSize  int
-	MemoryCacheMaxCount    int
+	MemoryItemMaxSize   int
+	MemoryCacheMaxSize  int
+	MemoryCacheMaxCount int
 
 	pathRx *regexp.Regexp
 }
@@ -125,16 +125,16 @@ func (c *Cache) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		case "cache_header_name":
 			c.CacheHeaderName = value
 
-		case "memory_single_item_max_size":
+		case "memory_item_max_size":
 			if n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil {
-				c.MemoryItemCacheMaxSize = int(n)
+				c.MemoryItemMaxSize = int(n)
 			}
 
-		case "memory_all_item_max_size":
+		case "memory_max_size":
 			if n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil {
-				c.MemoryAllCacheMaxSize = int(n)
+				c.MemoryCacheMaxSize = int(n)
 			}
-		case "memory_all_item_max_count":
+		case "memory_max_count":
 			if n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64); err == nil {
 				c.MemoryCacheMaxCount = int(n)
 			}
@@ -228,16 +228,16 @@ func (c *Cache) Provision(ctx caddy.Context) error {
 	}
 
 	// TODO: let 0 == disable memory but cache to disk?
-	if c.MemoryItemCacheMaxSize == 0 {
-		c.MemoryItemCacheMaxSize = 4 * 1024 * 1024 // 4MB
+	if c.MemoryItemMaxSize == 0 {
+		c.MemoryItemMaxSize = 4 * 1024 * 1024 // 4MB
 	}
-	if c.MemoryItemCacheMaxSize < 0 { // < 0 == unlimited
-		c.MemoryItemCacheMaxSize = math.MaxInt
+	if c.MemoryItemMaxSize < 0 { // < 0 == unlimited
+		c.MemoryItemMaxSize = math.MaxInt
 	}
 
 	// TODO: let < 0 disable memory but cache to disk?
-	if c.MemoryAllCacheMaxSize == 0 {
-		c.MemoryAllCacheMaxSize = 128 * 1024 * 1024 // 128MB as default should be enough?
+	if c.MemoryCacheMaxSize == 0 {
+		c.MemoryCacheMaxSize = 128 * 1024 * 1024 // 128MB as default should be enough?
 	}
 
 	// TODO: let < 0 disable memory but cache to disk?
@@ -245,7 +245,7 @@ func (c *Cache) Provision(ctx caddy.Context) error {
 		c.MemoryCacheMaxCount = 32 * 1024 // 32K item as default should be enough?
 	}
 
-	c.Store = NewStore(c.Loc, c.TTL, c.MemoryAllCacheMaxSize, c.MemoryCacheMaxCount, c.logger)
+	c.Store = NewStore(c.Loc, c.TTL, c.MemoryCacheMaxSize, c.MemoryCacheMaxCount, c.logger)
 
 	return nil
 }
