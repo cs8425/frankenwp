@@ -29,9 +29,11 @@ type Store struct {
 	loc      string
 	ttl      int
 	logger   *zap.Logger
-	memCache atomic.Value // *xsync.MapOf[string, *MemCacheItem]
+	memCach0 atomic.Value // *xsync.MapOf[string, *MemCacheItem]
 
-	// memCache map[string]*MemCacheItem
+	memMaxSize  int
+	memMaxCount int
+	memCache    atomic.Value // *LRUCache[string, *MemCacheItem]
 }
 
 type MemCacheItem struct {
@@ -45,7 +47,8 @@ const (
 
 func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
 	os.MkdirAll(loc+"/"+CACHE_DIR, 0o755)
-	memCache := xsync.NewMapOf[*MemCacheItem]()
+	// memCache := xsync.NewMapOf[*MemCacheItem]()
+	memCache := NewLRUCache[string, *MemCacheItem](2) // 128*1024*1204 128MB
 	d := &Store{
 		loc:    loc,
 		ttl:    ttl,
@@ -88,8 +91,16 @@ func NewStore(loc string, ttl int, logger *zap.Logger) *Store {
 	return d
 }
 
-func (d *Store) getMemCache() *xsync.MapOf[string, *MemCacheItem] {
-	memCache, ok := d.memCache.Load().(*xsync.MapOf[string, *MemCacheItem])
+// func (d *Store) getMemCache() *xsync.MapOf[string, *MemCacheItem] {
+// 	memCache, ok := d.memCache.Load().(*xsync.MapOf[string, *MemCacheItem])
+// 	if !ok {
+// 		return nil
+// 	}
+// 	return memCache
+// }
+
+func (d *Store) getMemCache() *LRUCache[string, *MemCacheItem] {
+	memCache, ok := d.memCache.Load().(*LRUCache[string, *MemCacheItem])
 	if !ok {
 		return nil
 	}
@@ -161,7 +172,11 @@ func (d *Store) Set(reqPath string, cacheKey string, meta *CacheMeta, value []by
 	key = strings.ReplaceAll(key, "/", "+")
 	ce := meta.contentEncoding
 	memCache := d.getMemCache()
-	_, existed := memCache.LoadAndStore(key+"::"+ce, &MemCacheItem{
+	// _, existed := memCache.LoadAndStore(key+"::"+ce, &MemCacheItem{
+	// 	CacheMeta: meta,
+	// 	value:     value,
+	// })
+	existed := memCache.Put(key+"::"+ce, &MemCacheItem{
 		CacheMeta: meta,
 		value:     value,
 	})
