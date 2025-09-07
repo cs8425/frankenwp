@@ -30,6 +30,13 @@
 		path /xmlrpc.php
 		path *.sql
 		path /wp-content/uploads/*.php /wp-content/uploads/*.phtml
+
+		# disable access to cache file
+		path */.*
+		path */sidekick-cache/*
+	}
+	respond @disallowed "404 Not Found" 404 {
+		close
 	}
 
 	root * /var/www/html
@@ -44,6 +51,9 @@
 		bypass_home {$BYPASS_HOME:false}
 		bypass_path_prefixes {$BYPASS_PATH_PREFIXES:/wp-admin,/wp-json}
 		cache_header_name {$CACHE_HEADER_NAME:X-Custom-Cache}
+		memory_item_max_size {$CACHE_MEM_ITEM_SIZE:4194304}
+		memory_max_size {$CACHE_MEM_ALL_SIZE:134217728}
+		memory_max_count {$CACHE_MEM_ALL_COUNT:32768}
 	}
 
 	{$CADDY_SERVER_EXTRA_DIRECTIVES}
